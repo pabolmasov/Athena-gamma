@@ -1,0 +1,152 @@
+module --ignore-cache load mpi/openmpi-1.10.4 hdf5 gsl
+module --ignore-cache load "python/python-anaconda_3.7"
+module --ignore-cache load ffmpeg
+module --ignore-cache load hdf5/hdf5-1.12.1-w-openmpi-4.0.0-IB mpi/openmpi-4.0.0-IB gsl
+
+jupyter notebook --port 8000
+
+qsub run_preamr.sh
+qstat -a
+
+rw9JC8yzyGAN
+dVi-It0ewwBp
+kRx-Yy3-gIm-iN6
+
++-bf.8fk5c2EEim
+
+
+"addpot" is turned on/off in src/hydro/srcterms/self_gravity.cpp
+
+ssh compute-0-20
+
+pbsnodes -aSj | grep free
+
+./bin/athena -r models/SG4/pois.00000.rst -m 384
+./bin/athena -r models/T0M/pois.00000.rst -m 768
+./bin/athena -r models/T2M/pois.00000.rst -m 480
+./bin/athena -r models/T1H/pois.00000.rst -m 384
+./bin/athena -r models/T1T/pois.00000.rst -m 384
+./bin/athena -r models/T1M/pois.00019.rst -m 768
+
+
+adiabatic:
+python configure.py --prob=sg_tde --grav=mg --flux=lhllc --eos=adiabatic -hdf5 -h5double --hdf5_path /opt/homebrew --nscalars=1 --lib_path /opt/local/lib   --include /opt/local/include --lib gslcblas --lib gsl --lib m
+isothermal:
+python configure.py --prob=quark --grav=mg --flux=hlle --eos=isothermal -hdf5 -h5double --hdf5_path /opt/homebrew --nscalars=1
+
+
+astro3:
+hydro:
+python configure.py  --prob=sg_tde --grav=mg --flux=lhllc -hdf5 -h5double --hdf5_path=$HDF5_ROOT -mpi --lib_path=$LIBRARY_PATH --include=$INCLUDE --lib gslcblas --lib gsl --lib m --nscalars=1
+MF:
+python configure.py  --prob=sg_tde -b --grav=mg --flux=lhlld -hdf5 -h5double --hdf5_path=$HDF5_ROOT -mpi --lib_path=$LIBRARY_PATH --include=$INCLUDE --lib gslcblas --lib gsl --lib m --nscalars=1
+python configure.py  --prob=tde_cloud -b --coord=cylindrical --flux=lhlld -hdf5 -h5double --hdf5_path=$HDF5_ROOT -mpi --lib_path=$LIBRARY_PATH --include=$INCLUDE --lib gslcblas --lib gsl --lib m --nscalars=1
+python configure.py  --prob=tde_square -b --flux=lhlld -hdf5 -h5double --hdf5_path=$HDF5_ROOT -mpi --lib_path=$LIBRARY_PATH --include=$INCLUDE --lib gslcblas --lib gsl --lib m --nscalars=1
+python configure.py  --prob=sg_tde -b --grav=mg --eos=general/eos_table -hdf5 -h5double --hdf5_path=$HDF5_ROOT -mpi --lib_path=$LIBRARY_PATH --include=$INCLUDE --lib gslcblas --lib gsl --lib m --nscalars=1
+
+convstar:
+python configure.py  --prob=convstar -b --grav=mg --flux=lhlld -hdf5 -h5double --hdf5_path=$HDF5_ROOT -mpi --lib_path=$LIBRARY_PATH --include=$INCLUDE --lib gslcblas --lib gsl --lib m --nscalars=1
+
+FFT:
+python configure.py  --prob=sg_tde -fft --grav=fft --flux=lhllc -hdf5 -h5double --hdf5_path=$HDF5_ROOT -mpi --lib_path=$LIBRARY_PATH --include=$INCLUDE --lib=gslcblas --lib=fft --lib=gsl --lib=m --nscalars=1
+# does not support refinement (
+
+
+
+fftw3.h not found...
+
+astro3 isothermal:
+python configure.py  --prob=sg_tde --grav=mg --flux=hlld --eos=isothermal -b -hdf5 -h5double --hdf5_path=$HDF5_ROOT -mpi --lib_path=$LIBRARY_PATH --include=$INCLUDE --lib gslcblas --lib gsl --lib m --nscalars=1
+
+pois.out1.00074.athdf_Bcc1_tabbox.hdf5
+
+ffmpeg -f image2 -r 15 -pattern_type glob -i 'Tsq1/arawXY*_rho.png' -pix_fmt yuv420p -b 4096k -vf "crop=trunc(iw/2)*2:trunc(ih/2)*2" Tsq1/XY.mp4
+ffmpeg -f image2 -r 15 -pattern_type glob -i 'Tsq?D_light/arawXY*_Bcc3.png' -pix_fmt yuv420p -b 4096k -vf "crop=trunc(iw/2)*2:trunc(ih/2)*2" bcc_lightD.mp4
+ffmpeg -f image2 -r 10 -pattern_type glob -i 'GD/arawXY*_rho.png' -pix_fmt yuv420p -b 4096k -vf "crop=trunc(iw/2)*2:trunc(ih/2)*2" T_rho.mp4
+ffmpeg -f image2 -r 10 -pattern_type glob -i 'models/Tsq?T_flat/arawXY*_r0.png' -pix_fmt yuv420p -b 4096k -vf "crop=trunc(iw/2)*2:trunc(ih/2)*2" models/T_R0.mp4
+models/athinput.sg_star
+run_preamrM.sh
+run_tde4m.sh
+
+eos_file_name   = /astro/pabolmasov/athena/models/e.tab # Specify EOS table filename
+eos_file_type   = ascii              # Specify EOS table file type [ascii,binary,hdf5]
+eos_read_ratios = true               # Table file specifies ratios between different
+
+ssh pabolmasov@astro3.tau.ac.il
+ssh -N -f -L 9000:localhost:9000 pabolmasov@astro3.tau.ac.il
+
+ssh -L 8887:localhost:8887 -J pabolmasov@gamma.tau.ac.il pabolmasov@astro3.tau.ac.il
+
+nohup python tabread.py &
+
+# [1]=time     [2]=dt       [3]=mass     [4]=1-mom    [5]=2-mom    [6]=3-mom    [7]=1-KE     [8]=2-KE     [9]=3-KE     [10]=tot-E   [11]=1-ME    [12]=2-ME    [13]=3-ME    [14]=0-scalar
+
+Tsq1T_flat
+
+run_preamr_flat.sh -->  run_tde4sqT_flat.sh
+dir: Tsq1[T,D]_flat
+
+no SG:
+tde_square.cpp
+models/athinput.tde_square_small
+rstar=10.
+rmin,max=2-8
+rper=30
+r0=100
+qsub run_preamrT.sh
+qsub run_tde4sqT_flat.sh
+
+starting from 6th, try to resolve the disc
+
+Resolution convegrence test:
+models/athinput.tde_square_restest
+run_preamrLR.sh
+
+GL1
+
+small penetration parameter:
+B1
+run_preamrM.sh
+
+small cut-off radius:
+
+GR1
+
+run_preamrRco.sh
+run_tde4sqR.sh
+rcutoff=10.0
+drcutoff=2.5
+
+Emden n=3/2 profile:
+run_tde4sqE.sh
+GE1
+
+star frame:
+
+models/athinput.conv:
+rper=10
+rstar = 10.
+rscale = 6. for n5
+= 10 for n=3/2
+XYZ limits 400^3
+run_cstarM3
+
+penetration beta=1:
+B1
+models/athinput.conv
+rper = 100
+run_preamrB.sh
+run_cstarB.sh
+
+tar cvfz models/C1D/cube100.tar.gz models/C1D/pois.out1.00100.athdf*tabbox.hdf5
+
+
+bgdrho * std::exp(std::max(std::min(rvir/std::max(r1,rBH), 30.), 1.0e-10));
+
+
+module load mpi/openmpi-4.0.2-gamma hdf5
+python configure.py --prob=srjet_m --flux=hlld -b -s -mpi -hdf5 -h5double --hdf5_path=$HDF5_ROOT --coord=cylindrical -lm
+
+make clean
+make
+

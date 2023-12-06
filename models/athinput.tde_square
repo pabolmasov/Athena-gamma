@@ -1,0 +1,99 @@
+<comment>
+problem   = poisson's solver test
+reference = 
+configure = --prob=tde_square -b --flux=lhlld -hdf5 -h5double --hdf5_path=$HDF5_ROOT -mpi --lib_path $LIBRARY_PATH --include $INCLUDE --lib gslcblas --lib gsl --lib m --nscalars=1
+
+<job>
+problem_id = pois    # problem ID: basename of output filenames
+
+<output1>
+file_type  = hdf5       # Binary data dump
+variable   = prim       # variables to be output
+dt         = 2.       # time increment between outputs
+
+<output2>
+file_type  = rst
+dt         = 5.
+
+<output3>
+file_type = hst
+dt        = 0.01
+
+<time>
+cfl_number = 0.25        # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1          # cycle limit
+tlim       = 1000.0        # time limit
+integrator  = rk3      # time integration algorithm (vl2 originally)
+xorder      = 2         # order of spatial reconstruction
+ncycle_out  = 1         # interval for stdout summary info
+
+<mesh>
+nx1         = 512       # Number of zones in X1-direction
+x1min       = -710.0      # minimum value of X1
+x1max       = 890.0       # maximum value of X1
+ix1_bc      = periodic      # Inner-X1 boundary condition flag
+ox1_bc      = periodic    # Outer-X1 boundary condition flag
+# x1rat       = 1.07461   # non-uniform grid ratio log-scale not supported (
+
+nx2         = 768       # Number of zones in X2-direction
+x2min       = -1590.0    # minimum value of X2
+x2max       = 810.0    # maximum value of X2
+ix2_bc      = periodic      # Inner-X2 boundary condition flag
+ox2_bc      = periodic      # Outer-X2 boundary condition flag
+
+nx3         = 192            # Number of zones in X3-direction
+x3min       = -290.0            # minimum value of X3
+x3max       = 310.0  # maximum value of X3
+ix3_bc      = periodic       # Inner-X3 boundary condition flag
+ox3_bc      = periodic      # Outer-X3 boundary condition flag
+
+refinement     = adaptive
+numlevel       = 5
+derefine_count    = 5
+
+<meshblock>
+nx1 = 64
+nx2 = 64
+nx3 = 64
+
+<hydro>
+gamma           = 1.666666666667 # gamma = C_p/C_v
+eos_file_name   = /astro/pabolmasov/athena/models/e.tab # Specify EOS table filename
+eos_file_type   = ascii              # Specify EOS table file type [ascii,binary,hdf5]
+eos_read_ratios = true               # Table file specifies ratios between different
+dfloor          = 1e-16
+pfloor          = 1e-16
+#  iso_sound_speed = 0.4082482905   # equivalent to sqrt(gamma*p/d) for p=0.1, d=1
+# grav_acc2 = 0.1
+
+<problem>
+four_pi_G = 12.5663706144
+rzero = 600.0
+rper = 30.0
+rstar = 12.0
+ifisostar = false
+rmin = 2.0
+rmax = 10.0
+magbeta = 1.0e3 # negative to make the MF 0 everywhere
+mBH   = 1.0e3
+rBH   = 10.0
+mstar = 3.0e3  # in the code units (now 1Msun!)
+bgdrho = 1.0e-8
+temp = 1000.0
+bgdBx = 0.0
+bgdBy = 0.0
+bgdBz = 0.0
+usetracer = true # if the tracer (R0) is used for refinement
+refden = 1.0e-3 # critical density for refinement (if usetracer = false)
+refB = 1.0e-8 # critical MF for refinement (used if magbeta > 0)
+refR = 0.1 # critical R0 for refinement
+thresh = 0.05 # step for refinement
+amp = 0.05 # amplitude of density variations
+# overkepler = 1.0 # 1.4142135623730951
+lharm = 1 # spherical harmonic (theta) ; if <= 0, the field is toroidal
+mharm = 0 # phi-harmonic
+randnoise = true
+qx = 25.1327 # wave number components (\lambda = 2pi / q)
+qy = 12.5663706144
+qz = 0. # 12.5663706144
+gstepnumber = 1e6

@@ -1,0 +1,79 @@
+<comment>
+problem   = star wind captured by BH gravity
+reference =
+configure = --prob=windcatcher -hdf5 -h5double --hdf5_path /opt/homebrew --include /opt/local/include --lib_path /opt/local/lib --lib gslcblas --lib gsl --lib m
+# --coord=spherical_polar
+
+<job>
+problem_id = wc    # problem ID: basename of output filenames
+
+<output1>
+file_type  = hdf5       # Binary data dump
+variable   = prim       # variables to be output
+dt         = 1.0       # time increment between outputs
+
+<output2>
+file_type  = rst
+dt         = 2.
+
+<output3>
+file_type = hst
+dt        = 0.1
+
+<time>
+cfl_number = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1          # cycle limit
+tlim       = 100.0        # time limit
+integrator  = rk3       # time integration algorithm
+xorder      = 2         # order of spatial reconstruction
+ncycle_out  = 1         # interval for stdout summary info
+
+<mesh>
+nx1         = 256      # Number of zones in X1-direction
+x1min       = -200.1      # minimum value of X1
+x1max       = 199.9       # maximum value of X1
+ix1_bc      = outflow      # Inner-X1 boundary condition flag
+ox1_bc      = outflow      # Outer-X1 boundary condition flag
+# x1rat       = 1.07461   # non-uniform grid ratio log-scale not supported (
+
+nx2         = 256       # Number of zones in X2-direction
+x2min       = -200.1    # minimum value of X2
+x2max       = 199.9    # maximum value of X2
+ix2_bc      = outflow      # Inner-X2 boundary condition flag
+ox2_bc      = outflow      # Outer-X2 boundary condition flag
+
+nx3         = 256          # Number of zones in X3-direction
+x3min       = -200.1           # minimum value of X3
+x3max       = 199.9  # maximum value of X3
+ix3_bc      = outflow       # Inner-X3 boundary condition flag
+ox3_bc      = outflow       # Outer-X3 boundary condition flag
+
+refinement     = none
+numlevel       = 4
+derefine_count    = 3
+
+<meshblock>
+nx1        = 256
+nx2        = 256
+nx3        = 256
+
+<hydro>
+gamma           = 1.666666666667 # gamma = C_p/C_v
+dfloor          = 1e-10
+pfloor          = 1e-11
+iso_sound_speed = 0.1
+
+<problem>
+mstar = 1.0
+rstar = 10.0
+mBH = 1.0e6
+rper = 30.0
+tper = 10.0
+bgdrho = 1.0e-8
+temp = 10.
+amp = 0.01
+ecc = 1.0
+ifwind=true
+overkepler=1.5
+mdot=1e-3
+twind = 10.0

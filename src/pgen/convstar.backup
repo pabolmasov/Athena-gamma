@@ -1,0 +1,216 @@
+//========================================================================================
+// Athena++ astrophysical MHD code
+// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// Licensed under the 3-clause BSD License, see LICENSE file for details
+//========================================================================================
+//! \file binary_gravity.cpp
+//  \brief Problem generator to test Multigrid Poisson's solver with Multipole Expansion
+
+// C headers
+
+// C++ headers
+#include <algorithm>
+#include <cmath>
+#include <cstring>    // memset
+#include <ctime>
+#include <iomanip>
+#include <iostream>
+#include <list>
+#include <fstream> // reading and writing files
+using std::ifstream;
+#include <limits>
+
+// Athena++ headers
+#include "../athena.hpp"
+#include "../athena_arrays.hpp"
+#include "../coordinates/coordinates.hpp"
+#include "../eos/eos.hpp"
+#include "../field/field.hpp"
+#include "../globals.hpp"
+#include "../gravity/gravity.hpp"
+#include "../gravity/mg_gravity.hpp"
+#include "../hydro/hydro.hpp"
+#include "../mesh/mesh.hpp"
+#include "../mesh/mesh_refinement.hpp"
+#include "../multigrid/multigrid.hpp"
+#include "../parameter_input.hpp"
+#include "../hydro/srcterms/hydro_srcterms.hpp"
+#include "../utils/utils.hpp"     // ran2()
+
+#ifdef OPENMP_PARALLEL
+#include <omp.h>
+#endif
+
+#ifdef MPI_PARALLEL
+#include <mpi.h>
+#endif
+
+#if SELF_GRAVITY_ENABLED != 2
+#error "This problem generator requires Multigrid gravity solver."
+#endif
+
+#if MAGNETIC_FIELDS_ENABLED
+#error "This problem generator does not support magnetic fields."
+#endif
+
+namespace{
+Real four_pi_G;
+Real rstar, mstar, bgdrho, temp, amp;
+Real rcore;
+std::string starmodel; // the name of the MESA file containing the density and pressure profiles
+// Real instar_interpolate(std::list<Real> instar_radius, std::list<Real>instar_array, std::list<Real> instar_mass, Real r2, Real rres);
+void instar_interpolate(std::list<Real> instar_radius, std::list<Real> instar_lrho, std::list<Real> instar_lpress, std::list<Real> instar_mass, Real r2, Re\
+al rres, Real *rho, Real *p);
+
+}
+
+void Mesh::InitUserMeshData(ParameterInput *pin) {
+  four_pi_G = pin->GetReal("problem","four_pi_G");
+    starmodel = pin->GetString("problem", "starmodel");
+    std::cout << "reading from " << starmodel << std::endl ;
+    rcore = pin->GetReal("problem","rcore");
+    mstar = pin->GetReal("problem","mstar");
+    bgdrho = pin->GetReal("problem","bgdrho");
+    temp = pin->GetReal("problem","temp");
+    amp = pin->GetReal("problem","amp");
+    
+  SetFourPiG(four_pi_G);
+}
+
+//========================================================================================
+//! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
+//  \brief Problem Generator for gravity from a binary
+//========================================================================================
+
+void MeshBlock::ProblemGenerator(ParameterInput *pin) {
+ //   Real x0 = 12.0/1024.0, y0 = 0.0, z0 = 0.0, r = 6.0/1024.0;
+ 
+    // Real starrho = mstar  / (4. * PI /3. * rstar * rstar * rstar);
+
+    Real G = four_pi_G / (4.0 * PI), drsq = 1.;
+    
+    Real den1;
+    Real dencurrent = 0., pcurrent = 0.;
+
+    Real rvir = G*mstar / temp;
+    
+    std::int64_t iseed = -1 - gid;
+
+    // density distribution in the star:
+     std::list<Real> instar_mass = {};
+     std::list<Real> instar_radius = {};
+     std::list<Real> instar_lrho = {};
+     std::list<Real> instar_lpress = {};
+
+    Real tmp_m, tmp_r, tmp_lrho, tmp_lpress, instar_rmax = 0., mcheck = 0.;
+    ifstream indata;
+    indata.open(starmodel); // opens the file
+    // std::string s;
+    // indata >> s; // header (skipping one line)
+    while ( !indata.eof() ) { // keep reading until end-of-file
+      indata >> tmp_m >> tmp_r >> tmp_lrho >> tmp_lpress; // sets EOF flag if no value found
+      std::cout << tmp_m << " "<< tmp_r << " " << tmp_lrho << tmp_lpress << std::endl ;
+      instar_mass.push_back(tmp_m);
+      instar_radius.push_back(tmp_r);
+      instar_lrho.push_back(tmp_lrho);
+      instar_lpress.push_back(tmp_lpress);
+      if (tmp_r > instar_rmax) instar_rmax = tmp_r;
+    }
+    indata.close();
+
+    std::cout << "instar_rmax = " << instar_rmax << std::endl ;
+
+    Real starmass_empirical = 0.;
+    
+  for (int k = ks; k <= ke; ++k) {
+    Real  z = pcoord->x3v(k);
+    for (int j = js; j <= je; ++j) {
+      for (int i = is; i <= ie; ++i) {
+          Real x = pcoord->x1v(i), y = pcoord->x2v(j);
+          Real r1 = std::sqrt(x*x+y*y+z*z); // distance to the BH
+          Real rhogas = bgdrho * std::exp(std::max(std::min(rvir * (-1./std::sqrt(rstar*rstar+drsq) + 1./std::sqrt(r1*r1+drsq)), 10.),-10.));
+          Real dr = sqrt(SQR(pcoord->dx1f(i))+SQR(pcoord->dx2f(j))+SQR(pcoord->dx3f(k))), dv = std::fabs(pcoord->dx1f(i) * pcoord->dx2f(j) * pcoord->dx3f(k));
+          if (r1<=instar_rmax){
+// dencurrent = instar_interpolate(instar_radius, instar_lrho, instar_mass, r1, std::max(dr, rcore)) * 0.169493 ; // * pcoord->dx1f(i));
+              // dencurrent = starrho * (1. + amp * (ran2(&iseed) - 0.5))+rhogas ;
+              // pcurrent = instar_interpolate(instar_radius, instar_lpress, instar_mass, r1, std::max(dr, rcore)) / 1.12511e16 ; // * pcoord->dx1f(i));
+           // pcurrent = 2.0 * PI / 3.0 * G * starrho * starrho * (rstar * rstar - r1 * r1) + rhogas * temp ;
+              instar_interpolate(instar_radius, instar_lrho, instar_lpress, instar_mass, r1, std::max(dr, rcore),
+                                 &dencurrent, &pcurrent) ; // * pcoord->dx1f(i));
+              starmass_empirical += dencurrent * dv ;
+          }else{
+            dencurrent = 0. ;
+            pcurrent = 0.;
+        }
+        phydro->w(IDN,k,j,i) = dencurrent+rhogas;
+        phydro->w(IPR,k,j,i) = pcurrent+rhogas*temp;
+        phydro->w(IM1,k,j,i) = 0.0;
+        phydro->w(IM2,k,j,i) = 0.0;
+        phydro->w(IM3,k,j,i) = 0.0;
+      }
+    }
+      std::cout << "z = " << z << std::endl;
+  }
+    
+    std::cout << "starmass = " << starmass_empirical << std::endl;
+    // getchar();
+peos->PrimitiveToConserved(phydro->w, pfield->bcc, phydro->u, pcoord, is, ie, js, je, ks, ke);
+
+}
+
+namespace{
+
+void instar_interpolate(std::list<Real> instar_radius, std::list<Real> instar_lrho, std::list<Real> instar_lpress, std::list<Real> instar_mass, Real r2, Real rcore, Real *rho, Real *p){
+  int nl =instar_radius.size();
+
+  Real lrho1, lrho0=0., lpress1, lpress0 = 0., r0=instar_radius.front()*1.1, r1, m1, mcore=-1., pcore = -1., lrhocore = 0., m0 = mstar;
+
+  std::list<Real> instar_radius1 = instar_radius;
+  std::list<Real> instar_lrho1 = instar_lrho;
+  std::list<Real> instar_lpress1 = instar_lpress;
+  std::list<Real> instar_mass1 = instar_mass;
+
+  //    std::cout << "lrho: " << instar_lrho1.front() << std::endl;
+
+  if (r2>instar_radius1.front()){
+    *rho = 0.;
+    *p = 0.;
+    return;
+  }
+
+  for(int k = 0; k<nl; k++){
+    rho1 = std::pow(10., instar_lrho1.front()); // no conversion so far
+    press1 = instar_lpress1.front(); // no conversion so far
+    r1 = instar_radius1.front();
+    m1 = instar_mass1.front();
+
+    if((r1<rcore)&&(mcore <= 0.)){
+      mcore = m1; // core mass
+      pcore = std::pow(10., lpress1);
+      lrhocore = lrho1;
+    }
+    if(mcore > 0.){
+      m1 = mcore * std::pow(r1/rcore, 3.);
+      lrho1 = lrhocore ;
+      lpress1 = std::log10(pcore + four_pi_G / 6. * std::pow(10., lrho1*2.) * (rcore * rcore - r1 * r1));
+      // P = Pcore + 2.*pi/3. * rho^2 * (rstar^2-r^2)
+    }
+      // std::cout << instar_array.size() << std::endl;
+       instar_lrho1.pop_front(); instar_lpress1.pop_front(); instar_radius1.pop_front(); instar_mass1.pop_front();
+       if ((r2<r0)&&(r2>=r1)){
+         //      std::cout << r0 << " > "<< r2 << " > " << r1 << std::endl;
+         // std::cout << std::pow(10., (lrho1-lrho0)/(r1-r0)*(r2-r0)+lrho0) << std::endl;
+         *rho = std::pow(10., (lrho1-lrho0)/(r1-r0)*(r2-r0)+lrho0);
+         *p = std::pow(10., (lpress1-lpress0)/(r1-r0)*(r2-r0)+lpress0);
+         return;
+         // return std::pow(10., (lrho1-lrho0)/(r1-r0)*(r2-r0)+lrho0);
+       }
+       lrho0 = lrho1;
+       lpress0 = lpress1 ;
+       r0 = r1;
+     }
+     *rho = std::pow(10., lrho1);
+     *p = std::pow(10., lpress1);
+
+   }
+}
