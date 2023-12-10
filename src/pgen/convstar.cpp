@@ -53,29 +53,26 @@ using std::ifstream;
 #endif
 
 namespace{
-Real four_pi_G;
-Real rstar, mstar, bgdrho, temp, amp, rscale;
-Real xshift, yshift, zshift;
-int lharm, mharm;
-Real rmin, rmax, magbeta;
-bool ifflat, iftab, ifinclined, ifstep, ifn5;
-Real rzero;
-std::string starmodel; // the name of the MESA file containing the density and pressure profiles
-// Real instar_interpolate(std::list<Real> instar_radius, std::list<Real>instar_array, std::list<Real> instar_mass, Real r2, Real rres);
-void instar_interpolate(std::list<Real> instar_radius, std::list<Real> instar_lrho, std::list<Real> instar_lpress, std::list<Real> instar_mass, Real r2, Real rres, Real *rho, Real *p);
-void GetCylCoord(Coordinates *pco,Real &rad,Real &phi,Real &z,int i,int j,int k);
-void GetCylCoord_f(Coordinates *pco,Real &rad,Real &phi,Real &z,int i,int j,int k);
-Real psi_AB(Real r, Real cth, Real phi);
-Real azfun(Real r, Real z);
-Real SmoothStep(Real x);
-
-Real BHgmax, rgrav, addmass, BHdist, Mcoeff, tper, rper;
-Real rcutoff, drcutoff;
-Real cthA = 1., sthA = 0., phiA = 0.;
-Real Rthresh;
-Real ecc;
-
-Real coremass, corerad, envmass, corerho, envrho;
+  Real four_pi_G;
+  Real rstar, mstar, bgdrho, temp, amp, rscale;
+  Real xshift, yshift, zshift;
+  int lharm, mharm;
+  Real rmin, rmax, magbeta;
+ bool ifflat, iftab, ifinclined, iftracer = true;
+ Real rzero;
+ std::string starmodel; // the name of the MESA file containing the density and pressure profiles
+ // Real instar_interpolate(std::list<Real> instar_radius, std::list<Real>instar_array, std::list<Real> instar_mass, Real r2, Real rres);
+ void instar_interpolate(std::list<Real> instar_radius, std::list<Real> instar_lrho, std::list<Real> instar_lpress, std::list<Real> instar_mass, Real r2, Real rres, Real *rho, Real *p);
+ void GetCylCoord(Coordinates *pco,Real &rad,Real &phi,Real &z,int i,int j,int k);
+ void GetCylCoord_f(Coordinates *pco,Real &rad,Real &phi,Real &z,int i,int j,int k);
+ Real psi_AB(Real r, Real cth, Real phi);
+ Real azfun(Real r, Real z);
+ Real SmoothStep(Real x);
+ 
+ Real BHgmax, rgrav, addmass, BHdist, Mcoeff, tper, rper;
+ Real rcutoff, drcutoff;
+ Real cthA = 1., sthA = 0., phiA = 0.;
+ Real Rthresh, thresh;
 }
 
 int RefinementCondition(MeshBlock *pmb);
@@ -98,21 +95,11 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     ifflat = pin->GetBoolean("problem", "ifflat");
     iftab = pin->GetBoolean("problem", "iftab");
     ifinclined = pin->GetBoolean("problem", "ifinclined");
-    ifstep= pin->GetBoolean("problem", "ifstep");
-
-    if (iftab==true){
+    
+    if (iftab){
         starmodel = pin->GetString("problem", "starmodel");
         std::cout << "reading from " << starmodel << std::endl ;
     }
-    
-    
-    if ((!iftab)&&(!ifflat)&&(!ifstep)){
-        ifn5=true;
-    }
-    else{
-        ifn5 = false;
-    }
-    
     rmin = pin->GetReal("problem","rmin");
     rmax = pin->GetReal("problem","rmax");
     mstar = pin->GetReal("problem","mstar");
@@ -122,18 +109,18 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     rcutoff = pin->GetReal("problem","rcutoff");
     drcutoff = pin->GetReal("problem","drcutoff");
 
-    if(ifinclined==true){
+    if(ifinclined){
        Real inc = pin->GetOrAddReal("problem", "inc", 0.);
        cthA = std::cos(inc); sthA = std::sin(inc);
        phiA = pin->GetOrAddReal("problem", "phiA", 0.); // magnetic axis orientation
      }
     
     addmass = pin->GetReal("problem","mBH"); // black hole mass
-    rgrav = (addmass/1.e6) * 2.1218; // GM_{\rm BH}/c^2
+    rgrav = (addmass/1.e6) * 2.1218 ; // GM_{\rm BH}/c^2
     std::cout << "rgrav = " << rgrav << std::endl ;
     BHgmax = addmass / SQR(rgrav); // GM/R^2 at R = 3GM/c^2
     rper = pin->GetReal("problem","rper"); // pericenter distance
-    Mcoeff = std::sqrt(addmass / 2.) * std::pow(rper/(1.-ecc), -1.5);
+    Mcoeff = std::sqrt(addmass / 2.) * std::pow(rper, -1.5);
     tper = pin->GetReal("problem","tper"); // time lag
     
     bgdrho = pin->GetReal("problem","bgdrho");
@@ -145,19 +132,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     lharm = pin->GetReal("problem","lharm");
     mharm = pin->GetReal("problem","mharm");
     magbeta = pin->GetReal("problem","magbeta"); // magnetic parameter
-    Rthresh = pin->GetOrAddReal("problem","rthresh", 0.5); // magnetic parameter
-
-    ecc = pin->GetOrAddReal("problem","ecc", 1.0); // eccentricity
-
-    if(ifstep==true){
-        coremass  = pin->GetReal("problem","coremass");
-        corerad = pin->GetReal("problem","corerad");
-        corerho = coremass / std::pow(corerad,3) * 3./4./PI;
-        envmass = mstar - coremass;
-        envrho = envmass / (std::pow(rstar,3) - std::pow(corerad,3)) * 3./4./PI;
-        std::cout << "step function\n coremass = " << coremass << ";  envrho = " << envmass << "\n";
-        std::cout << "step function\n corerho = " << corerho << ";  envrho = " << envrho << "\n";
-    }
+    Rthresh = pin->GetOrAddReal("problem","rthresh", 0.5); // R0 cut-off
+    thresh = pin->GetOrAddReal("problem","thresh", 0.1); // relative one-cell variation for refinement
 
     // AMR setup:
     if (adaptive==true)
@@ -192,8 +168,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
     Real tmp_m, tmp_r, tmp_lrho, tmp_lpress, instar_rmax = 0., instar_mtot = 0.;
     
-    if (iftab==true){
+    if (iftab){
         ifstream indata;
+	clock_t tstart1 = clock();
         indata.open(starmodel); // opens the file
         // std::string s;
         // indata >> s; // header (skipping one line)
@@ -208,19 +185,26 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
             if (tmp_m > instar_mtot) instar_mtot = tmp_m;
         }
         indata.close();
-        std::cout << "instar_rmax = " << instar_rmax << std::endl ;
-        std::cout << "instar_mtot = " << instar_mtot << std::endl ;
+	
+	clock_t tend1 = clock();
+	float cpu_time = (tend1>tstart1 ? static_cast<Real>(tend1-tstart1) : 1.0) /
+	  static_cast<Real>(CLOCKS_PER_SEC);
+	if(Globals::my_rank == 0){
+	  std::cout << "instar_rmax = " << instar_rmax << std::endl ;
+	  std::cout << "instar_mtot = " << instar_mtot << std::endl ;
+	  std::cout << "reading time = " << cpu_time << std::endl ;
+	}
     }
     
     Real starmass_empirical = 0.;
     
     Real rnorm = std::sqrt(rmin*rmax/3.);
     // interpolation for velocity normalization
-    if (iftab==true){
+    if (iftab){
         instar_interpolate(instar_radius, instar_lrho, instar_lpress, instar_mass, rnorm, 0., &dencurrent, &pcurrent) ;
     }
     
-    if(ifflat==true){
+    if(ifflat){
         dencurrent = 1. ;
         pcurrent =  1.-SQR(rnorm/rscale) ; // flat star case
     }
@@ -228,25 +212,16 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
     Real dnorm = mstar * 3./4./PI * std::pow(rscale, -3.); // default values (for a flat star)
     
-    if(ifn5==true){
+    if(!ifflat){
         // n=5 solution
         dnorm = mstar / (4.0 * PI * std::sqrt(3.)) * std::pow(rscale, -3.0);
         pcurrent = std::pow(1.+SQR(rnorm/rscale)/3., -2.5);
     }
     Real pnorm = four_pi_G * SQR(dnorm * rscale) / 6. ;
 
-    if (iftab==true){
+    if (iftab){
         dnorm = mstar * std::pow(rscale/instar_rmax, -3.);
         pnorm = SQR(mstar/SQR(rscale/instar_rmax));
-    }
-    
-    if (ifstep==true){
-        pnorm = G * coremass * corerho / rstar * (
-                                                  (1.-envrho / corerho) * (1.5 * rstar / corerad-1.)
-                                                  + 0.5 * envrho / corerho * std::pow(rstar / corerad, 3.)
-                                                  );
-        if(Globals::my_rank == 0)std::cout << "step function\n corerho = " << corerho << ";  envrho = " << envrho << "\n";
-        if(Globals::my_rank == 0)std::cout << "pnorm = " << pnorm << "\n";
     }
     
     Real rvir = G*mstar / temp;
@@ -255,7 +230,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     BHcoord(0., &xBH, &yBH, &zBH);
     Real reff0 = std::sqrt(SQR(xBH)+SQR(yBH)+SQR(zBH));
     
-    std::cout << "distance toward the BH = " << reff0 << std::endl ;
+    if(Globals::my_rank == 0)std::cout << "distance toward the BH = " << reff0 << std::endl ;
     
     rzero = reff0;
     
@@ -263,7 +238,6 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
        // interpolation for MF normalization
         rnorm = (rmax+rmin)/2.;
         rcsnorm = std::sqrt(2. * pcurrent * pnorm / magbeta);
-        if (ifstep==true) rcsnorm = std::sqrt(2. * pnorm / magbeta);
         if(Globals::my_rank == 0)std::cout << "B norm = " << rcsnorm << std::endl;
      }
     
@@ -278,6 +252,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
     Real cthsqmax = 0.99 ; // a limit for cos^2\theta
     
+    clock_t tstart = clock();
+
     for (int k = ks; k <= ke; ++k) {
         for (int j = js; j <= je; ++j) {
             for (int i = is; i <= ie; ++i) {
@@ -292,56 +268,52 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
                 Real reff = std::sqrt(SQR(x-xBH)+SQR(y-yBH)+SQR(z-zBH));
                 Real PhiBH =  - rvirBH / (reff-2.*rgrav);
                 if (reff<(3.*rgrav)){
-                    PhiBH = (- 1.5 + SQR(reff/rgrav)/6.) * rvirBH / rgrav;
+		  PhiBH = (- 1.5 + SQR(reff/rgrav)/6.) * rvirBH / rgrav;
                 }
                 PhiBH += rvirBH / (reff0-2.*rgrav); // zeroing at the star centre
-                Real rhogas = bgdrho * std::exp(std::max(std::min(rvir * (-1./std::sqrt(rscale*rscale+drsq) + 1./std::sqrt(r1*r1+drsq)), 0.),-10.));
+                Real rhogas = bgdrho * std::exp(std::max(std::min(rvir * (-1./std::sqrt(rscale*rscale+drsq) + 1./std::sqrt(r1*r1+drsq)), std::log(dnorm/bgdrho)-2.),-30.));
                 Real dx = pcoord->dx1f(i), dy = pcoord->dx2f(j), dz = pcoord->dx3f(k);
                 Real dr = std::sqrt(SQR(dx)+SQR(dy)+SQR(dz)), dv = std::fabs(dx*dy*dz);
                 // Real dr = std::sqrt(SQR(pcoord->dx1f(i))+SQR(pcoord->dx2f(j))+SQR(pcoord->dx3f(k))), dv = std::fabs(pcoord->dx1f(i) * pcoord->dx2f(j) * pcoord->dx3f(k));
                 Real vr = 0.,vth = 0., vphi = 0., cs = 0.;
-                if (!ifn5){
-                    if (r1<=rstar){
+                if (ifflat || iftab){
+		  if (r1<=std::max(rstar,dr)){
                         if (ifflat){
                             dencurrent = dnorm ;
                             pcurrent = (1.-SQR(r1/rscale)) * pnorm ;
                         }
-                        else if (iftab==true){
-                                instar_interpolate(instar_radius, instar_lrho, instar_lpress, instar_mass, r1 / rscale * instar_rmax, dr / rscale * instar_rmax, &dencurrent, &pcurrent) ; // * pcoord->dx1f(i));
-                                dencurrent *= dnorm ;
-                                pcurrent *= pnorm ;
-                            }
-                        else if (ifstep==true){
-                            if(r1 <= corerad){
-                                dencurrent = corerho;
-                                pcurrent = pnorm - 0.5 * G*coremass * corerho / corerad * SQR(r1 / corerad);
-                            }else{
-                                dencurrent = envrho;
-                                pcurrent = G * coremass * corerho / rstar * (
-                                                                             (1.-envrho/corerho) * (rstar / r1 - 1.)
-                                                                             + 0.5 * envrho / corerho * std::pow(rstar/corerad, 3.) * (1.-SQR(r1/rstar))
-                                                                             );
-                            }
-                        }else{
-                            std::cerr << "we should not be here!\n" ;
+                        else{
+			  //                            if (iftab){
+			  instar_interpolate(instar_radius, instar_lrho, instar_lpress, instar_mass, r1 / rscale * instar_rmax, dr / rscale * instar_rmax, &dencurrent, &pcurrent) ; // * pcoord->dx1f(i));
+			  dencurrent *= dnorm ;
+			  pcurrent *= pnorm ;
+			      //}
                         }
-                    }else{
+		  }else{
                         dencurrent = 0. ;
                         pcurrent = 0.;
                     }
                 }
                 else{
                     // n=5 solution
-                    dencurrent = dnorm * std::pow(1.+SQR(r1/rscale)/3., -2.5) * SmoothStep(-(r1-rcutoff)/std::max(drcutoff,dr));
-                    pcurrent = pnorm * std::pow(1.+SQR(r1/rscale)/3., -3.0) * SmoothStep(-(r1-rcutoff)/std::max(drcutoff,dr));
+		  dencurrent = dnorm * std::pow(1.+SQR(r1/std::max(rscale,dr))/3., -2.5) * SmoothStep(-(r1-rcutoff)/std::max(drcutoff,dr));
+		  pcurrent = pnorm * std::pow(1.+SQR(r1/std::max(rscale,dr))/3., -3.0) * SmoothStep(-(r1-rcutoff)/std::max(drcutoff,dr));
                 }
                 // vr = vth = vphi = 0.; // maybe we will do something to the velocities
                 // Real vxr = (vr * x/r1 + vth * cth1 * cos(phi1) - vphi * sin(phi1)) ;
                 // Real vyr = (vr * y/r1 + vth * cth1 * sin(phi1) + vphi * cos(phi1)) ;
                 // Real vzr = (vr * z/r1 - vth * std::sqrt(1.-cth1*cth1)) ;
                 
-                phydro->w(IDN,k,j,i) = dencurrent + rhogas;
-                phydro->w(IPR,k,j,i) = pcurrent + rhogas*temp;
+		if (pcurrent >= (rhogas*temp)){
+		  phydro->w(IDN,k,j,i) = dencurrent;
+		  phydro->w(IPR,k,j,i) = pcurrent;
+		}
+		else{
+                  phydro->w(IDN,k,j,i) = rhogas;
+                  phydro->w(IPR,k,j,i) = rhogas * temp ;		  
+		}
+		//                 phydro->w(IDN,k,j,i) = std::max(dencurrent, rhogas);
+		// phydro->w(IPR,k,j,i) = std::max(pcurrent, rhogas*temp);
                 phydro->w(IM1,k,j,i) = 0.;
                 phydro->w(IM2,k,j,i) = 0.;
                 phydro->w(IM3,k,j,i) = 0.;
@@ -350,7 +322,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
                 if (NSCALARS>0){
                    constexpr int scalar_norm = NSCALARS > 0 ? NSCALARS : 1.0;
                    Real d0 = phydro->w(IDN,k,j,i);
-                   if (r1<rstar){
+                   if (r1<std::max(rstar,dr)){
                      for (int n=0; n<NSCALARS; ++n) {
                        pscalars->s(n,k,j,i) = d0*1.0/scalar_norm;
                        starmass_empirical += dencurrent * dv ;
@@ -467,6 +439,12 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         }
         // std::cout << "z = " << z << std::endl;
     }
+
+    clock_t tend = clock();
+    float cpu_time = (tend>tstart ? static_cast<Real>(tend-tstart) : 1.0) /
+      static_cast<Real>(CLOCKS_PER_SEC);
+
+    std::cout << "IC time = " << cpu_time << std::endl;
     std::cout << "starmass = " << starmass_empirical << std::endl;
     
     if(MAGNETIC_FIELDS_ENABLED){
@@ -532,25 +510,34 @@ int RefinementCondition(MeshBlock *pmb)
     AthenaArray<Real> &w = pmb->phydro->w;
     AthenaArray<Real> &R = pmb->pscalars->r; // scalar (=1 inside the star, =0 outside)
     
-    Real maxR0 = 0.0;
-    Real rad = 0.;
+    Real maxR0 = 0.0, maxeps = 0.;
+    Real refden = 10. * bgdrho;
     
     for(int k=pmb->ks; k<=pmb->ke; k++) {
-        Real  z = pmb->pcoord->x3v(k);
-        for(int j=pmb->js; j<=pmb->je; j++) {
-            Real y = pmb->pcoord->x2v(j);
-            for(int i=pmb->is; i<=pmb->ie; i++) {
-                // Real x = pmb->pcoord->x1v(i), dx = pmb->pcoord->dx1v(i); // , y = pmb->pcoord->x2v(j), z = pmb->pcoord->x3v(k);
-                //        Real xf = pmb->pcoord->x1f(i), yf = pmb->pcoord->x2f(j), zf = pmb->pcoord->x3f(k);
-                // Real r1 = std::sqrt(SQR(x)+SQR(y)+SQR(z)); // distance to the star centre
-                maxR0 = std::max(maxR0, R(0, k, j, i));
-            }
-        }
+      // Real  z = pmb->pcoord->x3v(k);
+      for(int j=pmb->js; j<=pmb->je; j++) {
+	//  Real y = pmb->pcoord->x2v(j);
+	for(int i=pmb->is; i<=pmb->ie; i++) {
+	  // Real x = pmb->pcoord->x1v(i), dx = pmb->pcoord->dx1v(i); // , y = pmb->pcoord->x2v(j), z = pmb->pcoord->x3v(k);
+	  //        Real xf = pmb->pcoord->x1f(i), yf = pmb->pcoord->x2f(j), zf = pmb->pcoord->x3f(k);
+	  // Real r1 = std::sqrt(SQR(x)+SQR(y)+SQR(z)); // distance to the star centre
+	  Real r = R(0, k, j, i);
+	  Real den = w(IDN,k,j,i);
+	  maxR0 = std::max(maxR0, R(0, k, j, i));
+	  if ((r>Rthresh) && (den>refden)){
+	    Real eps = std::abs(w(IDN,k,j,i+1)+w(IDN,k,j,i-1) - 2. * den) + std::abs(w(IDN,k,j+1,i)+w(IDN,k,j-1,i) - 2. * den) + std::abs(w(IDN,k+1,j,i)+w(IDN,k-1,j,i) - 2. * den);
+	      //std::sqrt(SQR(w(IDN,k,j,i+1)-w(IDN,k,j,i-1))
+	      //	    +SQR(w(IDN,k,j+1,i)-w(IDN,k,j-1,i))
+	      //	    +SQR(w(IDN,k+1,j,i)-w(IDN,k-1,j,i)))/(den+refden);
+	    maxeps = std::max(maxeps, eps / (den+refden));
+	  }
+	}
+      }
     }
-
-    if (maxR0 > Rthresh) return 1; // refinement
+    
+    if (maxeps > thresh) return 1; // refinement
     if (maxR0 < (0.25*Rthresh)) return -1; // derefinement
-
+    
 }
 
 Real BHgfun(Real x, Real y, Real z){
@@ -567,27 +554,13 @@ Real BHgfun(Real x, Real y, Real z){
 
 Real true_anomaly(Real time){
     Real M = Mcoeff * (time - tper); // global Mcoeff is sqrt(GM/Rp^3), global tper is the time of pericenter passage
-    if (ecc >= 1.){
-        // parabolic (hyperbolic not included yet!)
-        return 2. * std::atan(2.*std::sinh(std::asinh(1.5*M)/3.));
-    }
-    else{
-        // elliptic
-        Real E = M , E1 = 0., tol = 1e-8; // eccentric anomaly, M = E - e sin(E)
-        while(std::abs(E-E1)>tol){
-            E = E1;
-            E1 = M + ecc * std::sin(E);
-        }
-        Real beta = ecc / (1.+std::sqrt(1.-SQR(ecc)));
-        return E + 2.*std::atan(beta * std::sin(E)/(1.-beta*std::sin(E)));
-        //          return 2.*std::atan(std::sqrt((1.+ecc)/(1.-ecc)*std::tan(E/2.)));
-    }
+    return 2. * std::atan(2.*std::sinh(std::asinh(1.5*M)/3.));
 }
 
 void BHcoord(Real time, Real* xBH, Real* yBH, Real* zBH){
     // parabolic motion with pericenter distance rper, true anomaly nu
     Real nu = true_anomaly(time);
-    Real rad = (1.0+ecc) * rper / (1.0+ecc * std::cos(nu));
+    Real rad = 2. * rper / (1.0+std::cos(nu));
     
     *xBH = rad * std::cos(nu);
     *yBH = rad * std::sin(nu);
@@ -617,7 +590,8 @@ void BHgrav(MeshBlock *pmb, const Real time, const Real dt,
     Real BH0y = -yBH/std::sqrt(SQR(xBH)+SQR(yBH)+SQR(zBH)) * BH0;
     Real BH0z = -zBH/std::sqrt(SQR(xBH)+SQR(yBH)+SQR(zBH)) * BH0;
 
-    Real dencut = 10. * bgdrho;
+    Real trcut = 100.;
+    Real dencut = trcut * bgdrho;
     
     for (int k=pmb->ks; k<=pmb->ke; ++k) {
         Real z = pmb->pcoord->x3v(k);
@@ -634,8 +608,14 @@ void BHgrav(MeshBlock *pmb, const Real time, const Real dt,
                 Real g3 = fadd * (z-zBH)/reff - BH0z; // (BHphifun(x,y,pmb->pcoord->x3v(k+1))-BHphifun(x, y, pmb->pcoord->x3v(k-1)))/2.;
                 
                 // density cut-off:
-                Real s = stitcher(den/dencut, 0.5);
-                g1 *= s;
+                Real s=1.;
+		//		if (iftracer){
+		// s = stitcher(trcut * prim_scalar(0,k,j,i), 0.1);
+		// }
+		// else{ 
+		s = stitcher(den/dencut, 0.5);		  
+		// }
+		g1 *= s;
                 g2 *= s;
                 g3 *= s;
 
@@ -647,6 +627,8 @@ void BHgrav(MeshBlock *pmb, const Real time, const Real dt,
                 if (NON_BAROTROPIC_EOS) {
                     cons(IEN,k,j,i) -= (g1 * prim(IM1, k,j,i) + g2 * prim(IM2,k,j,i) +  g3 * prim(IM3, k,j,i)) * dt * den;
                 }
+		// all the low-density regions require cleaning:
+		if(den < bgdrho) cons_scalar(0,k,j,i) = 0.0;
             }
         }
     }
@@ -725,49 +707,51 @@ Real azfun(Real r, Real z){ // Atheta(r) for a toroidal loop
    }
  }
 
-void instar_interpolate(std::list<Real> instar_radius, std::list<Real> instar_lrho, std::list<Real> instar_lpress, std::list<Real> instar_mass, Real r2, Real rcore, Real *rho, Real *p){
-  int nl =instar_radius.size();
+  void instar_interpolate(std::list<Real> instar_radius, std::list<Real> instar_lrho, std::list<Real> instar_lpress, std::list<Real> instar_mass, Real r2, Real rcore, Real *rho, Real *p){
+    int nl =instar_radius.size();
 
-  Real rho1, rho0=0., press1, press0 = 0., r0=instar_radius.front()*1.01, r1, m1, mcore=-1., pcore = -1., rhocore = 0., m0 = mstar;
+    Real rho1, rho0=0., press1, press0 = 0., r0=0.0, r1, m1, mcore=-1., pcore = -1., rhocore = 0., m0 = mstar;
 
-  std::list<Real> instar_radius1 = instar_radius;
-  std::list<Real> instar_lrho1 = instar_lrho;
-  std::list<Real> instar_lpress1 = instar_lpress;
-  std::list<Real> instar_mass1 = instar_mass;
-
-  //    std::cout << "lrho: " << instar_lrho1.front() << std::endl;
-
-  if (r2>instar_radius1.front()){
+    std::list<Real> instar_radius1 = instar_radius;
+    std::list<Real> instar_lrho1 = instar_lrho;
+    std::list<Real> instar_lpress1 = instar_lpress;
+    std::list<Real> instar_mass1 = instar_mass;
+    
+    //    std::cout << "lrho: " << instar_lrho1.front() << std::endl;
+    
+    if (r2>instar_radius1.front()){
       rho1 = instar_lrho1.front(); // no conversion so far
       press1 = instar_lpress1.front(); // no conversion so far
-
+      
       *rho = rho1; // (rho1-rho0)/(r1-r0)*(r2-r0)+rho0;
       *p = press1; // (press1-press0)/(r1-r0)*(r2-r0)+press0;
+      return;
+    }
+    
+    for(int k = 0; k<nl; k++){
+      rho1 = instar_lrho1.front(); // no conversion so far
+      press1 = instar_lpress1.front(); // no conversion so far
+      r1 = instar_radius1.front();
+      //    r1 = std::sqrt(SQR(r1)+SQR(rcore));
+      m1 = instar_mass1.front();
+      
+      // std::cout << instar_array.size() << std::endl;
+      instar_lrho1.pop_front(); instar_lpress1.pop_front(); instar_radius1.pop_front(); instar_mass1.pop_front();
+      if (r1<=r2){ // &&(r2 >= r1)
+	//      std::cout << r0 << " > "<< r2 << " > " << r1 << std::endl;
+	// std::cout << std::pow(10., (lrho1-lrho0)/(r1-r0)*(r2-r0)+lrho0) << std::endl;
+	*rho = rho1 ; // (rho1-rho0)/(r1-r0)*(r2-r0)+rho0;
+	*p = press1 ; // (press1-press0)/(r1-r0)*(r2-r0)+press0;
+	return;
+	// return std::pow(10., (lrho1-lrho0)/(r1-r0)*(r2-r0)+lrho0);
+      }
+      rho0 = rho1;
+      press0 = press1 ;
+      r0 = r1;
+    }
+    *rho = rho1;
+    *p = press1;
+    std::cerr << "interpolate: you should not be here! \n";
     return;
   }
-
-  for(int k = 0; k<nl; k++){
-    rho1 = instar_lrho1.front(); // no conversion so far
-    press1 = instar_lpress1.front(); // no conversion so far
-    r1 = instar_radius1.front();
-    m1 = instar_mass1.front();
-
-    // std::cout << instar_array.size() << std::endl;
-    instar_lrho1.pop_front(); instar_lpress1.pop_front(); instar_radius1.pop_front(); instar_mass1.pop_front();
-    if ((r2<=r0)&&(r2>=r1)){
-         //      std::cout << r0 << " > "<< r2 << " > " << r1 << std::endl;
-         // std::cout << std::pow(10., (lrho1-lrho0)/(r1-r0)*(r2-r0)+lrho0) << std::endl;
-         *rho = (rho1-rho0)/(r1-r0)*(r2-r0)+rho0;
-         *p = (press1-press0)/(r1-r0)*(r2-r0)+press0;
-         return;
-         // return std::pow(10., (lrho1-lrho0)/(r1-r0)*(r2-r0)+lrho0);
-       }
-       rho0 = rho1;
-       press0 = press1 ;
-       r0 = r1;
-     }
-     *rho = rho1;
-     *p = press1;
-    return;
-   }
 }

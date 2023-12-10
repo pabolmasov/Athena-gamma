@@ -20,6 +20,11 @@ dt         = 2.
 file_type = hst
 dt        = 0.1
 
+<output4>
+file_type  = hdf5       # Binary data dump
+variable   = cons       # variables to be output
+dt         = 1.0       # time increment between outputs
+
 <time>
 cfl_number = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1          # cycle limit

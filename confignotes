@@ -11,8 +11,10 @@ qstat -a
 rw9JC8yzyGAN
 dVi-It0ewwBp
 kRx-Yy3-gIm-iN6
+bf.8fk5c2Eeim
 
 +-bf.8fk5c2EEim
+
 
 
 "addpot" is turned on/off in src/hydro/srcterms/self_gravity.cpp

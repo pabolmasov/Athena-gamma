@@ -68,13 +68,10 @@ using std::ifstream;
 
 namespace{
   Real four_pi_G, gam;
-  Real rper, rzero, rstar, mstar, bgdrho, temp, overkepler, drcorona, rhalo, amp; // drcorona has the shape of Lane-Emden with n=5; outside rstar-drcorona, density and pressure behave according to LE5
-  bool usetracer, iftab, ifisostar; 
-  //  Real denpro(Real x); // density profile inside the star, normalised by unity; argument is the distance from the centre/ R*
-  //  Real ppro(Real x); // pressure profile (consistent with denpro)
-  // ifstream indata;
+  Real rper, rzero, rstar, mstar, bgdrho, temp, overkepler, rhalo, amp; 
+  bool usetracer, iftab, ifisostar, ifflatstar, hotcells; 
   std::string starmodel; // the name of the LE solution or MESA file containing the density and pressure profiles
-  Real rscale, mscale;
+  Real rscale, mscale, rcutoff, drcutoff;
   void instar_interpolate(std::list<Real> instar_radius, std::list<Real> instar_lrho, std::list<Real> instar_lpress, std::list<Real> instar_mass, Real r2, Real rres, Real *rho, Real *p);
   // Real instar_interpolate(std::list<Real> instar_radius, std::list<Real>instar_array, std::list<Real> instar_mass, Real r2, Real rres);
   Real psi_AB(Real r, Real cth, Real phi);
@@ -85,13 +82,18 @@ namespace{
   Real qx, qy, qz; // perturbation wave vector
   bool randnoise; // if the noise is white rather than a single wave 
 
+  Real dtlimit;
+
   Real cs;
 
   Real isostar(Real r);
+  Real SmoothStep(Real x);
 
+  bool ifinclined = false;
+  Real cthA =1., sthA=0., phiA = 0.;
 }
 
-Real refden, refB, threshold, magbeta, refR, addmass = 1.0e3, rBHsq = 100., bgdtemp, rgrav, BHgmax;
+Real refden, refB, threshold, magbeta, refR, addmass = 1.0e3, bgdtemp, rgrav, rBH, BHgmax;
 
 int RefinementCondition(MeshBlock *pmb);
 
@@ -116,24 +118,32 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   }
   four_pi_G = pin->GetReal("problem","four_pi_G");
 
+  ifflatstar = pin->GetBoolean("problem", "ifflatstar");
   ifisostar = pin->GetBoolean("problem", "ifisostar");
+  iftab = pin->GetOrAddBoolean("problem", "iftab", false);
 
-  //  rscale = pin->GetReal("problem","rscale");
+  starmodel = pin->GetOrAddString("problem", "starmodel", "emden.dat");
+
+  rscale = pin->GetReal("problem","rscale");
 
   rzero = pin->GetReal("problem","rzero");
   rper = pin->GetReal("problem","rper");
 
-  rstar = pin->GetReal("problem","rstar");
+  rstar = pin->GetReal("problem","rstar"); // determines the size of the R0 = 1 region
+  // drstar = pin->GetReal("problem","drstar"); // transition layer on the star surface
   // rhalo = pin->GetReal("problem","rhalo");
   rmin = pin->GetReal("problem","rmin"); // the magnetized layer
   rmax = pin->GetReal("problem","rmax");
 
+  rcutoff = pin->GetReal("problem","rcutoff"); // cut-off radius; making it (1+2^1/3) \simeq 2.26 of rscale (half-mass radius)
+  drcutoff = pin->GetReal("problem","drcutoff"); // smoothing the cut-off radius (10% of the former?)
+
   magbeta = pin->GetReal("problem","magbeta"); // magnetic parameter
 
   addmass = pin->GetReal("problem","mBH"); // black hole mass
-  rgrav = addmass/1e3 * 2.1218; // GM_{\rm BH}/c^2                                                                                                                 
-  BHgmax = addmass / SQR(rgrav); // GM/R^2 at R = 3GM/c^2
-  // rBHsq = SQR(pin->GetReal("problem","rBH")); // softening the inner part of the potential
+  rgrav = addmass/1e3 * 2.1218e-3; // GM_{\rm BH}/c^2                             
+  rBH = pin->GetReal("problem","rBH"); // radius inside which the gravity is linear
+  BHgmax = addmass / SQR(rBH); // GM/R^2 at R = 3GM/c^2                                                                                           
 
   //    xcore = rstarcore / rstar;
   mscale = mstar = pin->GetReal("problem","mstar"); // note that addmass should be adjusted in src/hydro/srcterms/self_gravity.cpp as well
@@ -154,6 +164,9 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   refR = pin->GetReal("problem","refR"); // filter for passive scalar: regions inside the star are resolved
   threshold = pin->GetReal("problem","thresh");
   
+  hotcells = pin->GetBoolean("problem", "hotcells");
+  dtlimit = pin->GetReal("problem","dtlimit");
+
   // temp = pin->GetReal("problem","temp");
   amp = pin->GetReal("problem","amp");
   lharm = pin->GetReal("problem","lharm"); // if lharm <= 0, the field is considered toroidal
@@ -165,6 +178,13 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   qy =  pin->GetReal("problem","qy");
   qz =  pin->GetReal("problem","qz");
 
+  ifinclined = pin->GetOrAddBoolean("problem", "ifinclined", false);
+
+  if(ifinclined){
+    Real inc = pin->GetOrAddReal("problem","inc", 0.);
+    cthA = std::cos(inc); sthA = std::sin(inc);
+    phiA = pin->GetOrAddReal("problem","phiA", 0.); // magnetic axis orientation 
+  }
   //  gstepnumber = pin->GetReal("problem","gstepnumber");
 
   overkepler = std::sqrt(2.*rper/rzero);
@@ -194,9 +214,6 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
  
   Real m1 = addmass; // black hole mass (must be the same as additional mass in src/hydro/srcterms/self_gravity.cpp)
 
-  // Real drsq = rBHsq;
-  //  Real rhalo = 5. *rstar;
-
   Real bgdp = temp * bgdrho;
   Real G = four_pi_G / (4.0 * PI);
   
@@ -211,9 +228,10 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
   Real rhostar, pstar, alpha, thetastar;
    
-  alpha = rstar;
+  alpha = rscale ;
   rhostar = mstar / (4.0 * PI * std::sqrt(3.)) * std::pow(alpha, -3.0);
   if (ifisostar) rhostar = mstar / (4.0 * PI) * std::pow(alpha, -3.0);
+  if (ifflatstar) rhostar = mstar / (4.0 * PI/3.) * std::pow(alpha, -3.0); 
   pstar = four_pi_G * SQR(rhostar * alpha) / 6. ;
   thetastar = 1.;
   if (!NON_BAROTROPIC_EOS) {// isothermal case
@@ -231,6 +249,34 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
     rcsnorm = std::sqrt(2. * bgdrho * temp / magbeta);   
     if(Globals::my_rank == 0) std::cout << "norm = " << rcsnorm << std::endl;
+  }
+
+
+  std::list<Real> instar_mass = {};
+  std::list<Real> instar_radius = {};
+  std::list<Real> instar_lrho = {};
+  std::list<Real> instar_lpress = {};
+
+  if (iftab){    
+    // density distribution in the star:                                                                                                                 
+    ifstream indata;
+    indata.open(starmodel); // opens the file                                                                                                               
+    while ( !indata.eof() ) { // keep reading until end-of-file
+      indata >> tmp_m >> tmp_r >> tmp_lrho >> tmp_lpress; // sets EOF flag if no value found; one additional column in the model
+      // std::cout << tmp_m << " "<< tmp_r << " " << tmp_lrho << " " << tmp_lpress << std::endl ;
+      instar_mass.push_back(tmp_m);
+      instar_radius.push_back(tmp_r);
+      instar_lrho.push_back(tmp_lrho);
+      instar_lpress.push_back(tmp_lpress/G);
+      if (tmp_r > instar_rmax) instar_rmax = tmp_r;
+      if (tmp_m > instar_mtot) instar_mtot = tmp_m;
+    }
+    indata.close();
+
+    if (magbeta > 0.) {
+      instar_interpolate(instar_radius, instar_lrho, instar_lpress, instar_mass, rstar, 0., &rhostar, &pstar) ;
+      rcsnorm = std::sqrt(2. * pcurrent / magbeta);
+    }
   }
 
   AthenaArray<Real> ax, ay, az;
@@ -253,11 +299,14 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 	  
 	  Real theta = 1./std::sqrt(1.+SQR(r2/alpha)/3.);
 	  Real cth2 = z / r2, phi2 = std::atan2(y,x-rzero);
-    Real cth2f = zf / r2f, phi2f = std::atan2(yf,xf-rzero);
+          Real cth2f = zf / r2f, phi2f = std::atan2(yf,xf-rzero);
 
-    Real rhogas = bgdrho, pgas = bgdrho * temp;
-	  rhogas = bgdrho * std::exp(std::max(std::min(rvir/std::sqrt(SQR(r1)), 30.), 1.0e-10));
-	  pgas = bgdrho * std::exp(std::max(std::min(rvir/std::sqrt(SQR(r1)), 30.), 1.0e-10)) * temp;
+          Real rhogas = bgdrho, pgas = bgdrho * temp;
+	  rhogas = bgdrho * std::exp(std::max(std::min(rvir/std::max(r1,rBH), 30.), 1.0e-10));
+	  pgas = rhogas * temp ; 
+	    // bgdrho * std::exp(std::max(std::min(rvir/std::max(r1,rBH), 30.), 1.0e-10)) * temp;
+	  // rhogas = bgdrho * std::exp( G*m1 / temp / std::sqrt(r1*r1+drsq));
+	  // pgas = rhogas * temp ;
 	  Real dx = pcoord->dx1f(i), dy = pcoord->dx2f(j), dz = pcoord->dx3f(k);
 	  Real dr = std::sqrt(SQR(dx)+SQR(dy)+SQR(dz)), dv = std::fabs(dx*dy*dz);
 	  	  
@@ -265,12 +314,19 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 	    dencurrent = rhostar * isostar(r2/alpha);
 	    pcurrent = pstar * isostar(r2/alpha);
 	  }
-	    else{
+	  else if(iftab){
+	    instar_interpolate(instar_radius, instar_lrho, instar_lpress, instar_mass, r2, 0., &dencurrent, &pcurrent) ;
+	  }else if(ifflatstar){
+	    dencurrent = rhostar * SmoothStep(-(r2-rcutoff)/std::max(drcutoff,dr));
+	  }else{
 	      // n=5 solution
-	      dencurrent = rhostar * std::pow(theta/thetastar, 5.);
-	      pcurrent = pstar * std::pow(theta/thetastar, 6.);
-	    }
-	  
+	    dencurrent = rhostar * std::pow(theta/thetastar, 5.) * SmoothStep(-(r2-rcutoff)/std::max(drcutoff,dr));
+	    //	      pcurrent = pstar * std::pow(theta/thetastar, 6.);
+	  }
+	  dencurrent *= SmoothStep(-(r2-rcutoff)/std::max(drcutoff,dr));
+          pcurrent *=SmoothStep(-(r2-rcutoff)/std::max(drcutoff,dr));
+
+
 	  if (!NON_BAROTROPIC_EOS) {
 	    dencurrent = rhostar * isostar(r2/alpha);
 	    pcurrent = dencurrent * SQR(cs) ;
@@ -300,7 +356,17 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 		    //                    Real yf1 = yf +(Real)dj * dy;
                     // Real zf1 = zf +(Real)dk * dz;
 		    rc = std::sqrt(SQR(xf1-rzero)+SQR(yf1));
-		    az(k+dk,j+dj,i+di) = azfun(rc, zf1);
+		    
+		    if(ifinclined){
+		      zf1 = zf1 * cthA + (xf1 * cos(phiA) + yf1 * sin(phiA)) * sthA ; // zf1 in the inclined frame
+		      Real azd = azfun(rc, zf1);
+		      az(k+dk,j+dj,i+di) = azd * cthA; 
+		      ax(k+dk,j+dj,i+di) = azd * sthA * std::cos(phiA);
+                      ay(k+dk,j+dj,i+di) = azd * sthA * std::sin(phiA);
+		    }
+		    else{
+		      az(k+dk,j+dj,i+di) = azfun(rc, zf1);
+		    }
 		  }
 		}
 	      }	      
@@ -316,27 +382,41 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
                     // Real xf1 = xf + (Real)di * dx;
                     // Real yf1 = yf + (Real)dj * dy;
                     // Real zf1 = zf + (Real)dk * dz;
-                      Real xf1, yf1, zf1;
-                      if (di == -1)xf1 = xf - dx;
-                      if (di == 0)xf1 = xf;
-                      if (di == 1)xf1 = xf + dx;
-                      if (dj == -1)yf1 = yf - dy;
-                      if (dj == 0)yf1 = yf;
-                      if (dj == 1)yf1 = yf + dy;
-                      if (dk == -1)zf1 = zf - dz;
-                      if (dk == 0)zf1 = zf;
-                      if (dk == 1)zf1 = zf + dz;
+		    Real xf1, yf1, zf1;
+                    if (di == -1)xf1 = xf - dx;
+                    if (di == 0)xf1 = xf;
+                    if (di == 1)xf1 = xf + dx;
+                    if (dj == -1)yf1 = yf - dy;
+                    if (dj == 0)yf1 = yf;
+                    if (dj == 1)yf1 = yf + dy;
+                    if (dk == -1)zf1 = zf - dz;
+                    if (dk == 0)zf1 = zf;
+                    if (dk == 1)zf1 = zf + dz;
 
-                      r2f = std::sqrt(SQR(xf1-rzero)+SQR(yf1)+SQR(zf1));
-                    
-                      cth2f = zf1 / r2f;
-                      phi2f = std::atan2(yf1,xf1-rzero);
+                    r2f = std::sqrt(SQR(xf1-rzero)+SQR(yf1)+SQR(zf1));
 
-                      aphi = psi_AB(r2f, cth2f, phi2f);
+		    if (ifinclined){
+		      cth2f = (zf1 * cthA + (xf1 * cos(phiA) + yf1 * sin(phiA)) * sthA) / r2f;
+		      phi2f = std::atan2(yf1,xf1-rzero); // obviously, the expression should be different
+		    }
+		    else{
+		      cth2f = zf1 / r2f;
+		      phi2f = std::atan2(yf1,xf1-rzero);
+		    }
 
-                      ax(k+dk,j+dj,i+di) = -aphi * std::sin(phi2f);
-                      ay(k+dk,j+dj,i+di) = aphi * std::cos(phi2f);
-                  }
+		    aphi = psi_AB(r2f, cth2f, phi2f);
+
+		    if (ifinclined){
+		      Real sth2f = std::sqrt(1.-SQR(cth2f)) ; 
+		      ax(k+dk,j+dj,i+di) = (sthA * std::sin(phiA) * cth2f - cthA * sth2f * std::sin(phi2f) ) / sth2f * aphi ;
+		      ay(k+dk,j+dj,i+di) = (cthA * sth2f * std::cos(phi2f) - cth2f * sthA * std::sin(phiA) ) / sth2f * aphi ;
+		      az(k+dk,j+dj,i+di) = sthA * (std::sin(phiA) * sth2f - sth2f * std::sin(phiA) * sth2f * std::cos(phi2f) ) / sth2f * aphi ;
+		    }
+		    else{
+		      ax(k+dk,j+dj,i+di) = -aphi * std::sin(phi2f) ;
+		      ay(k+dk,j+dj,i+di) = aphi * std::cos(phi2f) ;
+		    }                  
+		  }
                 }
               }
 	    }
@@ -382,10 +462,17 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 	  else{
 	    randvel = 0.;
 	  }
-          phydro->w(IM3,k,j,i) =  cs * amp * randvel * 0.0 ;
-	  phydro->w(IM1,k,j,i) = -std::sqrt(2.*G*m1 /rzero * (1.- rper/rzero));
-	  phydro->w(IM2,k,j,i) = std::sqrt(G*m1/rzero) * overkepler;
-	  
+
+	  if (dencurrent >= rhogas){
+	    phydro->w(IM3,k,j,i) =  cs * amp * randvel * 0.0 ;
+	    phydro->w(IM1,k,j,i) = -std::sqrt(2.*G*m1 /rzero * (1.- rper/rzero));
+	    phydro->w(IM2,k,j,i) = std::sqrt(G*m1/rzero) * overkepler;
+	  }
+	  else{
+	    phydro->w(IM3,k,j,i) =  cs * amp * randvel * 0.0 ;
+            phydro->w(IM1,k,j,i) = -std::sqrt(2.*G*m1 /rzero * (1.- rper/rzero)) * 0.0;
+            phydro->w(IM2,k,j,i) = std::sqrt(G*m1/rzero) * overkepler * 0.0;
+	  }
       }
     }
   }
@@ -468,44 +555,59 @@ int RefinementCondition(MeshBlock *pmb)
                                                                                     
   Real maxeps = 0.0, maxden = 0.0, maxR0 = 0.0;
   Real rad = 0.;
+  Real dtmin = FLT_MAX;
 
-  Real rBH = 20. * rgrav ; // central region, remaining unresolved
+  Real rmaxAMR = 500.; //temporary!!!
+  //  Real rBH = 20. * rgrav ; // central region, remaining unresolved
 
   for(int k=pmb->ks; k<=pmb->ke; k++) {
+    Real  z = pmb->pcoord->x3v(k);
     for(int j=pmb->js; j<=pmb->je; j++) {
+      Real y = pmb->pcoord->x2v(j);
       for(int i=pmb->is; i<=pmb->ie; i++) {
-        Real x = pmb->pcoord->x1v(i), y = pmb->pcoord->x2v(j), z = pmb->pcoord->x3v(k);
+        Real x = pmb->pcoord->x1v(i), dx = pmb->pcoord->dx1v(i); // , y = pmb->pcoord->x2v(j), z = pmb->pcoord->x3v(k);
         //        Real xf = pmb->pcoord->x1f(i), yf = pmb->pcoord->x2f(j), zf = pmb->pcoord->x3f(k);
         Real r1 = std::sqrt(SQR(x)+SQR(y)+SQR(z)); // distance to the BH
 
-        Real eps = 0., epsp = 0., den = 0., bb=0.,  bsq = 0., epsm = 0.;
+        Real eps = 0.;
 
-        maxden = w(IDN,k,j,i);
+	Real den = w(IDN,k,j,i);
         if (usetracer == true){
-          if((R(0, k, j, i) > refR) && (r1 > rBH)){
+          if((R(0, k, j, i) > refR) && (r1 > rBH) && (r1 < rmaxAMR)){
             eps = std::sqrt(SQR(w(IDN,k,j,i+1)-w(IDN,k,j,i-1))
                             +SQR(w(IDN,k,j+1,i)-w(IDN,k,j-1,i))
                             +SQR(w(IDN,k+1,j,i)-w(IDN,k-1,j,i)))/(den+refden);
           }
         }
-        maxeps = std::max(maxeps, eps);
+	else{
+	  if((den > refden) && (r1 > rBH)){
+            eps = std::sqrt(SQR(w(IDN,k,j,i+1)-w(IDN,k,j,i-1))
+                            +SQR(w(IDN,k,j+1,i)-w(IDN,k,j-1,i))
+                            +SQR(w(IDN,k+1,j,i)-w(IDN,k-1,j,i)))/(den+refden);
+          }
+	}
+        maxeps = std::max(maxeps, eps) ; // * std::sqrt((r1+rper)/rper)); // harder to refine further outwards
         maxden = std::max(maxden, den);
         if (usetracer == true) maxR0 = std::max(maxR0, R(0, k, j, i));
+	if (hotcells == true) dtmin = std::min(dtmin, dx * std::sqrt(den/w(IPR,k,j,i))); // CFL time step from sound speed only
       }
     }
   }
 
-  if (maxeps > threshold) return 1; // refinement
-
-  if(usetracer == true){
-    if ((maxeps < (0.25*threshold)) || (maxR0 < (0.25*refR))) return -1; // derefinement
+  if (hotcells == true){
+    if ((maxeps > threshold) && (dtmin >= (dtlimit * 1.5))) return 1; // refinement
   }
   else{
-    if ((maxeps < (0.25*threshold)) || (maxden < (0.25*refden))) return -1;
+    if (maxeps > threshold) return 1;
+  }
+
+  if(usetracer == true){
+    if ((maxeps < (0.25*threshold)) || (maxR0 < (0.25*refR)) || (dtmin < dtlimit)) return -1; // derefinement
+  }
+  else{
+    if ((maxeps < (0.25*threshold)) || (maxden < (0.25*refden)) || (dtmin < dtlimit)) return -1;
   }
 }
-
-
 
  Real MyTimeStep(MeshBlock *pmb)
  {
@@ -544,11 +646,11 @@ Real BHgfun(Real x, Real y, Real z){
   // black hole gravitational potential                                                                                                                           
   Real r = std::sqrt(SQR(x)+SQR(y)+SQR(z));
 
-  if (r>=(3.*rgrav)){
-    return BHgmax / SQR(r/rgrav-2.); // addmass/SQR(r-2.*rgrav);                                                                                                  
+  if (r>=rBH) { // (3.*rgrav)){
+    return BHgmax * SQR((rBH-2.*rgrav)/(r-2.*rgrav)); // addmass/SQR(r-2.*rgrav);                                                                  
   }
   else{
-    return (r/rgrav) / 3. * BHgmax; // addmass/SQR(rgrav);                                                                                                        
+    return (r/rBH) * BHgmax; // addmass/SQR(rgrav);                                                                                                        
   }
 }
 
@@ -566,18 +668,18 @@ void BHgrav(MeshBlock *pmb, const Real time, const Real dt,
     for (int j=pmb->js; j<=pmb->je; ++j) {
       Real y = pmb->pcoord->x2v(j);
       for (int i=pmb->is; i<=pmb->ie; ++i) {
-          Real x = pmb->pcoord->x1v(i);
+	Real x = pmb->pcoord->x1v(i); 
 
-          Real rsqeff = SQR(x)+SQR(y)+SQR(z);
-          Real reff = std::sqrt(rsqeff), fadd = BHgfun(x,y,z), den = prim(IDN,k,j,i);
+	Real rsqeff = SQR(x)+SQR(y)+SQR(z);
+	Real reff = std::sqrt(rsqeff), fadd = BHgfun(x,y,z), den = prim(IDN,k,j,i);
 
-          Real g1 = fadd * (x/reff) ; // (BHphifun(pmb->pcoord->x1v(i+1), y, z)-BHphifun(pmb->pcoord->x1v(i-1), y, z))/2.,
-          Real g2 = fadd * (y/reff) ; // (BHphifun(x,pmb->pcoord->x2v(j+1), z)-BHphifun(x, pmb->pcoord->x2v(j-1), z))/2.,
-          Real g3 = fadd * (z/reff) ; // (BHphifun(x,y,pmb->pcoord->x3v(k+1))-BHphifun(x, y, pmb->pcoord->x3v(k-1)))/2.;
+	Real g1 = fadd * (x/reff) ; // (BHphifun(pmb->pcoord->x1v(i+1), y, z)-BHphifun(pmb->pcoord->x1v(i-1), y, z))/2., 
+	Real g2 = fadd * (y/reff) ; // (BHphifun(x,pmb->pcoord->x2v(j+1), z)-BHphifun(x, pmb->pcoord->x2v(j-1), z))/2.,
+	Real g3 = fadd * (z/reff) ; // (BHphifun(x,y,pmb->pcoord->x3v(k+1))-BHphifun(x, y, pmb->pcoord->x3v(k-1)))/2.;
 
-          cons(IM1,k,j,i) -=  ( g1 * dt ) * den ; //dtodx1 * den * (BHphifun(pmb->pcoord->x1v(i+1), y, z)-BHphifun(pmb->pcoord->x1v(i-1), y, z))/2.;
-          cons(IM2,k,j,i) -=  ( g2 * dt ) * den ; // dtodx2 * den * (BHphifun(x,pmb->pcoord->x2v(j+1), z)-BHphifun(x, pmb->pcoord->x2v(j-1), z))/2.;
-          cons(IM3,k,j,i) -=  ( g3 * dt ) * den ; // dtodx3 * den * (BHphifun(x,y,pmb->pcoord->x3v(k+1))-BHphifun(x, y, pmb->pcoord->x3v(k-1)))/2.;
+	cons(IM1,k,j,i) -=  ( g1 * dt ) * den ; //dtodx1 * den * (BHphifun(pmb->pcoord->x1v(i+1), y, z)-BHphifun(pmb->pcoord->x1v(i-1), y, z))/2.;
+	cons(IM2,k,j,i) -=  ( g2 * dt ) * den ; // dtodx2 * den * (BHphifun(x,pmb->pcoord->x2v(j+1), z)-BHphifun(x, pmb->pcoord->x2v(j-1), z))/2.;
+	cons(IM3,k,j,i) -=  ( g3 * dt ) * den ; // dtodx3 * den * (BHphifun(x,y,pmb->pcoord->x3v(k+1))-BHphifun(x, y, pmb->pcoord->x3v(k-1)))/2.;
 
 	  //fadd * (z / std::sqrt(rsqeff)) ;
 	if (NON_BAROTROPIC_EOS) {
@@ -633,5 +735,64 @@ namespace{
     }
   }
 
+  Real SmoothStep(Real x)
+  {
+    // step function approximation
+    if (x>30.)return 1.;
+    if (x<-30.)return 0.;
+    return (tanh(x)+1.)/2. ; // x/std::sqrt(x*x+1.);
+  }
+
+  void instar_interpolate(std::list<Real> instar_radius, std::list<Real> instar_lrho, std::list<Real> instar_lpress, std::list<Real> instar_mass, Real r2, Real rcore, Real *rho, Real *p){
+    
+    int nl =instar_radius.size();
+    
+    Real rho1, rho0=0., press1, press0 = 0., r0=instar_radius.front()*1.1, r1, m1, mcore=-1., pcore = -1., rhocore = 0., m0 = 1.;
+
+    Real r2n = r2/rscale;
+    
+    std::list<Real> instar_radius1 = instar_radius;
+    std::list<Real> instar_lrho1 = instar_lrho;
+    std::list<Real> instar_lpress1 = instar_lpress;
+    std::list<Real> instar_mass1 = instar_mass;
+
+    //    std::cout << "lrho: " << instar_lrho1.front() << std::endl;
+
+    if (r2n>instar_radius1.front()){
+      // we should not appear here
+      rho1 = instar_lrho1.front() * 0.; // no conversion so far
+      press1 = instar_lpress1.front() * 0.; // no conversion so far
+
+      *rho = rho1 * mscale / std::pow(rscale, 3.); // (rho1-rho0)/(r1-r0)*(r2-r0)+rho0;
+      *p = press1 * SQR(mscale/SQR(rscale));    // (press1-press0)/(r1-r0)*(r2-r0)+press0;
+      return;
+    }
+
+    for(int k = 0; k<nl; k++){
+      rho1 = instar_lrho1.front(); // no conversion so far
+      press1 = instar_lpress1.front(); // no conversion so far
+      r1 = instar_radius1.front();
+      m1 = instar_mass1.front();
+
+      // std::cout << instar_array.size() << std::endl;
+      instar_lrho1.pop_front(); instar_lpress1.pop_front(); instar_radius1.pop_front(); instar_mass1.pop_front();
+      if ((r2n<=r0)&&(r2n>=r1)){
+	//      std::cout << r0 << " > "<< r2 << " > " << r1 << std::endl;
+	// std::cout << std::pow(10., (lrho1-lrho0)/(r1-r0)*(r2-r0)+lrho0) << std::endl;
+        *rho = (rho1-rho0)/(r1-r0)*(r2n-r0)+rho0;
+        *p = (press1-press0)/(r1-r0)*(r2n-r0)+press0;
+        *rho *= mscale / std::pow(rscale, 3.);
+        *p *= SQR(mscale/SQR(rscale));
+        return ;
+	// return std::pow(10., (lrho1-lrho0)/(r1-r0)*(r2-r0)+lrho0);
+      }
+      rho0 = rho1;
+      press0 = press1 ;
+      r0 = r1;
+    }
+    *rho = rho1 * mscale / std::pow(rscale, 3.);
+    *p = press1 * SQR(mscale/SQR(rscale));
+    return;
+  }
 
 }

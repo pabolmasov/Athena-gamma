@@ -46,7 +46,6 @@ using H5Real = double;
 #error "Cannot create HDF5 output at higher precision than internal representation"
 #endif
 #define H5T_NATIVE_REAL H5T_NATIVE_DOUBLE
-
 #else
 using H5Real = float;
 #define H5T_NATIVE_REAL H5T_NATIVE_FLOAT

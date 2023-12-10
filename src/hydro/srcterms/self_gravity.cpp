@@ -52,12 +52,7 @@ void HydroSourceTerms::SelfGravity(const Real dt,const AthenaArray<Real> *flux,
                 Real force1;
                 Real x, y, z;
                 x = pmb->pcoord->x1v(i); y = pmb->pcoord->x2v(j); z = pmb->pcoord->x3v(k);
-                if (addpot){
-                    phic += x;
-                    phil += 0.5 * (pmb->pcoord->x1v(i-1)+x);
-                    phir += 0.5 * (pmb->pcoord->x1v(i+1)+x);
-                }
-                    cons(IM1,k,j,i) -= dtodx1*prim(IDN,k,j,i)*(phir-phil);
+                     cons(IM1,k,j,i) -= dtodx1*prim(IDN,k,j,i)*(phir-phil);
                 
                 
                 if (NON_BAROTROPIC_EOS){
@@ -89,12 +84,7 @@ void HydroSourceTerms::SelfGravity(const Real dt,const AthenaArray<Real> *flux,
                     Real force2;
                     Real x, y, z;
                     x = pmb->pcoord->x1v(i); y = pmb->pcoord->x2v(j); z = pmb->pcoord->x3v(k);
-                    if (addpot){
-                        phic += x;
-                        phil += x;
-                        phir += x;
-                    }
-                    cons(IM2,k,j,i) -= dtodx2*prim(IDN,k,j,i)*(phir-phil);
+                     cons(IM2,k,j,i) -= dtodx2*prim(IDN,k,j,i)*(phir-phil);
                     
                     if (NON_BAROTROPIC_EOS){
                         cons(IEN,k,j,i) -= dtodx2*(flux[X2DIR](IDN,k,j  ,i)*(phic - phil) +
@@ -119,11 +109,6 @@ void HydroSourceTerms::SelfGravity(const Real dt,const AthenaArray<Real> *flux,
                     Real force3;
                     Real x, y, z, reff;
                     x = pmb->pcoord->x1v(i); y = pmb->pcoord->x2v(j); z = pmb->pcoord->x3v(k);
-                    if (addpot){
-                        phic += x;
-                        phil += x;
-                        phir += x;
-                    }
                     
                     cons(IM3,k,j,i) -= dtodx3*prim(IDN,k,j,i)*(phir-phil);
  

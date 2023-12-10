@@ -5,6 +5,8 @@ src/defs.hpp
 # Object and binary directories
 obj/
 bin/
+models/
+
 
 # Compiled object files
 *.slo
@@ -35,7 +37,13 @@ athena
 *.athdf*
 *.hst
 *.rst
+*.png
+*.mp4
 meshtest.dat
+
+# local script files
+athinput.*
+run*sh
 
 # Visualization package files
 .smhist

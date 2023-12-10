@@ -24,6 +24,12 @@
 #define MAX_RANK_FILE 5
 
 // Declarations
+Real HDF5RealAttribute(const char *filename, const char *attribute_name);
+int HDF5IntAttribute(const char *filename, const char *attribute_name);
+
+void HDF5TripleRealAttribute(const char *filename, const char *attribute_name, Real* value_array);
+void HDF5TripleIntAttribute(const char *filename, const char *attribute_name, int* value_array);
+
 void HDF5ReadRealArray(const char *filename, const char *dataset_name, int rank_file,
                        const int *start_file, const int *count_file, int rank_mem,
                        const int *start_mem, const int *count_mem,

@@ -36,6 +36,57 @@
 #define H5T_REAL H5T_NATIVE_DOUBLE
 #endif
 
+Real HDF5RealAttribute(const char *filename, const char *attribute_name){
+    // reading a Real attribute with a given name
+    Real attribute_value;
+    hid_t property_list_file = H5Pcreate(H5P_FILE_ACCESS);
+    hid_t file = H5Fopen(filename, H5F_ACC_RDONLY, property_list_file);
+    hid_t attr = H5Aopen(file, attribute_name, H5P_DEFAULT);
+    H5Aread(attr, H5T_REAL, &attribute_value);
+    H5Pclose(property_list_file);
+    H5Aclose(attr);
+    H5Fclose(file);
+    std::cout << "read from "<< filename << ": attribute " << attribute_name << " = " << attribute_value << "\n";
+    return attribute_value;
+}
+int HDF5IntAttribute(const char *filename, const char *attribute_name){
+    // reading a Real attribute with a given name
+    int attribute_value;
+    hid_t property_list_file = H5Pcreate(H5P_FILE_ACCESS);
+    hid_t file = H5Fopen(filename, H5F_ACC_RDONLY, property_list_file);
+    hid_t attr = H5Aopen(file, attribute_name, H5P_DEFAULT);
+    H5Aread(attr, H5T_NATIVE_INT, &attribute_value);
+    H5Pclose(property_list_file);
+    H5Aclose(attr);
+    H5Fclose(file);
+    std::cout << "read from "<< filename << ": attribute " << attribute_name << " = " << attribute_value << "\n";
+    return attribute_value;
+}
+
+void HDF5TripleRealAttribute(const char *filename, const char *attribute_name, Real* value_array){
+    // reading a Real attribute with a given name
+    hid_t property_list_file = H5Pcreate(H5P_FILE_ACCESS);
+    hid_t file = H5Fopen(filename, H5F_ACC_RDONLY, property_list_file);
+    hid_t attr = H5Aopen(file, attribute_name, H5P_DEFAULT);
+    H5Aread(attr, H5T_REAL, value_array);
+    H5Pclose(property_list_file);
+    H5Aclose(attr);
+    H5Fclose(file);
+    std::cout << "read from "<< filename << ": attribute " << attribute_name << " = " << value_array[0] << ", " << value_array[1] << ", " << value_array[2] << "\n";
+}
+
+void HDF5TripleIntAttribute(const char *filename, const char *attribute_name, int* value_array){
+    // reading a Real attribute with a given name
+    hid_t property_list_file = H5Pcreate(H5P_FILE_ACCESS);
+    hid_t file = H5Fopen(filename, H5F_ACC_RDONLY, property_list_file);
+    hid_t attr = H5Aopen(file, attribute_name, H5P_DEFAULT);
+    H5Aread(attr, H5T_NATIVE_INT, value_array);
+    H5Pclose(property_list_file);
+    H5Aclose(attr);
+    H5Fclose(file);
+    std::cout << "read from "<< filename << ": attribute " << attribute_name << " = " << value_array[0] << ", " << value_array[1] << ", " << value_array[2] << "\n";
+}
+
 //----------------------------------------------------------------------------------------
 //! \fn void HDF5ReadArray(const char *filename, const char *dataset_name, int rank_file,
 //!     const int *start_file, const int *count_file, int rank_mem, const int *start_mem,
@@ -84,6 +135,7 @@ void HDF5ReadRealArray(const char *filename, const char *dataset_name, int rank_
   dims_mem_base[2] = array.GetDim3();
   dims_mem_base[3] = array.GetDim2();
   dims_mem_base[4] = array.GetDim1();
+    std::cout << "array dimensions: " << array.GetDim1() << " " << array.GetDim2() << " " << array.GetDim3() << " " << array.GetDim4()  << " " << array.GetDim5() << "\n";
   hsize_t *dims_mem = dims_mem_base + 5 - rank_mem;
 
   // Open data file

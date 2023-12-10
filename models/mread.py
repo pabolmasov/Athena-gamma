@@ -96,10 +96,28 @@ def hdfmovie():
     for k in arange(n2-n1)+n1:
         hdfplot(k, qname='r0', iflog=False)
 
+def readcons(nfile, dir ='windy'):
+    filename = dir+'/wc.out4.'+'{:05d}'.format(nfile)+'.athdf'
+    data = athena_read.athdf(filename, quantities = ['Etot'])
+    x = data['x1v'] ; y = data['x2v']  ; z = data['x3v']
+
+    q = data['Etot']
+
+    print(q.min(), q.max())
+
+    print(shape(q))
+    zslice = int(rint(size(z)/2.))
+
+    clf()
+    fig = figure()
+    pcolormesh(x, y, q[zslice, :,:])
+    colorbar()
+    savefig('constest.png')
+
 def hdfplot(nfile, ifv = False, ifm = False, qname = 'rho', dir = 'windy', iflog = False):
 
-    filename = dir+'/wc.out1.'+'{:05d}'.format(nfile)+'.athdf'
-    # filename = 'loop/Loop.out2.'+'{:05d}'.format(nfile)+'.athdf'
+    filename = dir+'/from_array.prim.'+'{:05d}'.format(nfile)+'.athdf'
+    # filename = dir+'/wc.out1.'+'{:05d}'.format(nfile)+'.athdf'
     
     if ifv:
         gad = 5./3.
@@ -252,7 +270,7 @@ def hdfplot(nfile, ifv = False, ifm = False, qname = 'rho', dir = 'windy', iflog
             
     if (qname == 'r0'):
         print('tracer range ', q.min(), q.max())
-    if (qname == 'rho') or (qname == 'press'):
+    if (qname == 'rho') and (qname == 'press'):
         z3, y3, x3 = meshgrid(z,y,x, indexing='ij')
         r3 = sqrt(x3**2+y3**2+z3**2)
         clf()
@@ -296,7 +314,7 @@ def nplot(n1, n2):
     for k in arange(n2-n1)+n1:
         print("n = ", k)
         # tk, mk = hdfplot(k, ifm=True)
-        hdfplot(k, ifv=True, dir='C2')
+        hdfplot(k, ifv=False, dir='windy')
         # tl.append(tk)  ; ml.append(mk)
         # fmcurve.write(str(tk)+' '+str(mk)+'\n')
         
