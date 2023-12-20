@@ -96,12 +96,42 @@ def hdfmovie():
     for k in arange(n2-n1)+n1:
         hdfplot(k, qname='r0', iflog=False)
 
+def qcompare(nfile1, nfile2, dir1='loop', dir2 = 'fromm_loop', prefix1 = 'Loop.prim.', prefix2 = 'from_array.prim.', qname='Bcc1'):
+    
+    filename1 = dir1+'/'+prefix1+'{:05d}'.format(nfile1)+'.athdf'
+    data = athena_read.athdf(filename1, quantities = [qname])
+    x1 = data['x1v'] ; y1 = data['x2v']  ; z1 = data['x3v']
+    q1 = data[qname]
+    print("time = ",data['Time'])
+
+    filename2 = dir2+'/'+prefix2+'{:05d}'.format(nfile2)+'.athdf'
+    data = athena_read.athdf(filename2, quantities = [qname])
+    x2 = data['x1v'] ; y2 = data['x2v']  ; z2 = data['x3v']
+    q2 = data[qname]
+    print("time = ",data['Time'])
+
+    # slices:
+    zslice = z2.mean()
+    kzslice1 = abs(z1-zslice).argmin()
+    kzslice2 = abs(z2-zslice).argmin()
+    yslice = y2.mean()
+    kyslice1 = abs(y1-yslice).argmin()
+    kyslice2 = abs(y2-yslice).argmin()
+
+    clf()
+    plot(x1, (q1[kzslice1, kyslice1,:]).flatten(), 'k.')
+    plot(x2, (q2[kzslice2, kyslice2,:]).flatten(), 'rx')
+    savefig('bcompare.png')
+
+
 def readcons(nfile, dir ='windy'):
-    filename = dir+'/wc.out4.'+'{:05d}'.format(nfile)+'.athdf'
-    data = athena_read.athdf(filename, quantities = ['Etot'])
+    # filename = dir+'/wc.out4.'+'{:05d}'.format(nfile)+'.athdf'
+    filename = dir+'/Loop.cons.'+'{:05d}'.format(nfile)+'.athdf'
+    data = athena_read.athdf(filename, quantities = ['Etot', 'B1', 'B2', 'B3'])
     x = data['x1v'] ; y = data['x2v']  ; z = data['x3v']
 
-    q = data['Etot']
+    print(data.keys())
+    q = data['B1']
 
     print(q.min(), q.max())
 
@@ -114,10 +144,36 @@ def readcons(nfile, dir ='windy'):
     colorbar()
     savefig('constest.png')
 
-def hdfplot(nfile, ifv = False, ifm = False, qname = 'rho', dir = 'windy', iflog = False):
+def hdfplot_XZ(nfile, qname = 'rho', iflog=False, dir='windy', prefix = 'from_array.prim',  yslice = 50.):
+    # prefix = 'wc.out1'
+    filename = dir+'/'+prefix+'.'+'{:05d}'.format(nfile)+'.athdf'
+    data = athena_read.athdf(filename, quantities = [qname])
+    x = data['x1v'] ; y = data['x2v']  ; z = data['x3v']
+    
+    kyslice = abs(y-yslice).argmin()
+    # yslice = int(rint(size(y)/2.))
+    print(shape(data[qname]))
+    q = data[qname][:,kyslice,:]
+    
+    clf()
+    fig = figure()
+    if iflog:
+        pcolormesh(x, z, log10(q))
+    else:
+        pcolormesh(x, z, q)
+    c1=colorbar()
+    if iflog:
+        c1.set_label(r'$\log_{10}$'+qname)
+    else:
+        c1.set_label(qname)
+    title(r't = '+str(data['Time'])+';   y = '+str(y[kyslice]))
+    savefig('XZ'+'{:05d}'.format(nfile)+'.png')
 
-    filename = dir+'/from_array.prim.'+'{:05d}'.format(nfile)+'.athdf'
-    # filename = dir+'/wc.out1.'+'{:05d}'.format(nfile)+'.athdf'
+
+def hdfplot(nfile, ifv = False, ifm = False, qname = 'rho', dir = 'windy', iflog = False, prefix = 'from_array.prim', circle = False):
+
+    filename = dir+'/'+prefix+'.'+'{:05d}'.format(nfile)+'.athdf'
+    # filename = dir+'/wc.out1.'+'{:05d}'.format(nfile)+'.athdf'  prefix = 'wc.out1'
     
     if ifv:
         gad = 5./3.
@@ -140,6 +196,7 @@ def hdfplot(nfile, ifv = False, ifm = False, qname = 'rho', dir = 'windy', iflog
             data = athena_read.athdf(filename, quantities = [qname, 'vel1', 'vel2', 'vel3'])
         else:
             data = athena_read.athdf(filename, quantities = [qname])
+            print(shape(data[qname]))
         x = data['x1v'] ; y = data['x2v']  ; z = data['x3v']
         zslice = int(rint(size(z)/2.))
         q = data[qname][zslice,:,:]
@@ -241,12 +298,17 @@ def hdfplot(nfile, ifv = False, ifm = False, qname = 'rho', dir = 'windy', iflog
             pcolormesh(x, y, q)
         
         # star surface:
-        phitmp = 2.*pi*arange(1000)/double(999)
-        rstar = 1.
-        plot(rstar * cos(phitmp), rstar * sin(phitmp), 'w')
+        if (circle):
+            phitmp = 2.*pi*arange(1000)/double(999)
+            rstar = 1.
+            plot(rstar * cos(phitmp), rstar * sin(phitmp), 'w')
         xlabel(r'X') ; ylabel(r'Y')
         cs = colorbar()
-        cs.set_label(r'$\log_{10}\rho$')
+        if iflog:
+            cs.set_label(r'$\log_{10}P$')
+        else:
+            cs.set_label(r'$P$')
+   
         '''
         nphi = 1000 ; rper = 50. ; rzero = 200.
         phi0 = arccos(1.-2. * rper/rzero)
@@ -261,7 +323,7 @@ def hdfplot(nfile, ifv = False, ifm = False, qname = 'rho', dir = 'windy', iflog
         xlim(x.min(), x.max())
         ylim(y.min(), y.max())
         title(r't = '+str(round(data['Time'])))
-        fig.set_size_inches(8.,6.)
+        fig.set_size_inches(6.,12.)
         savefig('XY'+'{:05d}'.format(nfile)+'.png')
         if ifm:
             r1 = 2. ; r2 = 3.
@@ -304,7 +366,6 @@ def hdfplot(nfile, ifv = False, ifm = False, qname = 'rho', dir = 'windy', iflog
             savefig('Bplot.png')
     # close('all')
        
-        
 def nplot(n1, n2):
 
     # tl =[] ; ml = []
@@ -314,13 +375,13 @@ def nplot(n1, n2):
     for k in arange(n2-n1)+n1:
         print("n = ", k)
         # tk, mk = hdfplot(k, ifm=True)
-        hdfplot(k, ifv=False, dir='windy')
+        hdfplot(k, ifv=False, iflog=False, dir='fromm_loop', prefix='from_array.prim', qname='Bcc2')
         # tl.append(tk)  ; ml.append(mk)
         # fmcurve.write(str(tk)+' '+str(mk)+'\n')
         
     # fmcurve.flush()
     # fmcurve.close()
-        
+    # ffmpeg -f image2 -r 15 -pattern_type glob -i 'models/XY*.png' -pix_fmt yuv420p -b 4096k -vf "crop=trunc(iw/2)*2:trunc(ih/2)*2" models/XY.mp4
     # t = asarray(tl) ; m = asarray(ml)
         
 def mplot():

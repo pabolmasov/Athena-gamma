@@ -43,6 +43,8 @@
 #include "../mesh/mesh.hpp"
 #include "../orbital_advection/orbital_advection.hpp"
 #include "../parameter_input.hpp"
+#include "../scalars/scalars.hpp"
+#include "../utils/utils.hpp"
 
 #if !MAGNETIC_FIELDS_ENABLED
 #error "This problem generator requires magnetic fields"
@@ -54,6 +56,31 @@
 //========================================================================================
 
 int RefinementCondition(MeshBlock *pmb);
+
+namespace{
+Real rad, amp, vflow, x0, y00, drat, threshold;
+int iprob;
+
+}
+
+void Mesh::InitUserMeshData(ParameterInput *pin) {
+    // Read initial conditions, diffusion coefficients (if needed)
+    rad = pin->GetReal("problem","rad");
+    amp = pin->GetReal("problem","amp");
+    vflow = pin->GetReal("problem","vflow");
+    drat = pin->GetOrAddReal("problem","drat",1.0);
+    iprob = pin->GetInteger("problem","iprob");
+    // the origin of the initial loop
+    x0 = pin->GetOrAddReal("problem","x0",0.0);
+    y00 = pin->GetOrAddReal("problem","y0",0.0);
+   // threshold = pin->GetOrAddReal("threshold","threshold",0.0);
+
+    if (adaptive) {
+      EnrollUserRefinementCondition(RefinementCondition);
+      threshold = pin->GetReal("problem", "thr");
+    }
+    return;
+  }
 
 
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
@@ -69,19 +96,6 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   ay.NewAthenaArray(nx3, nx2, nx1);
   az.NewAthenaArray(nx3, nx2, nx1);
 
-  // Read initial conditions, diffusion coefficients (if needed)
-  Real rad = pin->GetReal("problem","rad");
-  Real amp = pin->GetReal("problem","amp");
-  Real vflow = pin->GetReal("problem","vflow");
-  Real drat = pin->GetOrAddReal("problem","drat",1.0);
-  int iprob = pin->GetInteger("problem","iprob");
-
-    if (adaptive) {
-      EnrollUserRefinementCondition(RefinementCondition);
-      threshold = pin->GetReal("problem", "thr");
-    }
-
-    
     Real omega0 = porb->Omega0;
   Real qshear = porb->qshear;
   Real ang_2, cos_a2(0.0), sin_a2(0.0), lambda(0.0);
@@ -112,9 +126,6 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   }
 
   // Use vector potential to initialize field loop
-  // the origin of the initial loop
-  Real x0 = pin->GetOrAddReal("problem","x0",0.0);
-  Real y0 = pin->GetOrAddReal("problem","y0",0.0);
   // Real z0 = pin->GetOrAddReal("problem","z0",0.0);
 
   for (int k=ks; k<=ke+1; k++) {
@@ -124,9 +135,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         if (iprob==1) {
           ax(k,j,i) = 0.0;
           ay(k,j,i) = 0.0;
-          if ((SQR(pcoord->x1f(i)-x0) + SQR(pcoord->x2f(j)-y0)) < rad*rad) {
+          if ((SQR(pcoord->x1f(i)-x0) + SQR(pcoord->x2f(j)-y00)) < rad*rad) {
             az(k,j,i) = amp*(rad - std::sqrt(SQR(pcoord->x1f(i)-x0) +
-                                             SQR(pcoord->x2f(j)-y0)));
+                                             SQR(pcoord->x2f(j)-y00)));
           } else {
             az(k,j,i) = 0.0;
           }

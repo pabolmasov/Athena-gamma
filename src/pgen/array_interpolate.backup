@@ -40,18 +40,12 @@
 //!   - MeshBlock/nx1
 
 namespace{
-    Real bgdrho = 1e-8, bgdp = 1e-8, bgdvx, bgdvy, bgdvz, rotangle = 0., addvx, addvy, addvz;
+    Real bgdrho = 1e-8, bgdp = 1e-8, rotangle = 0.;
 }
 
 void Mesh::InitUserMeshData(ParameterInput *pin) {
     bgdrho = pin->GetReal("problem","bgdrho");
     bgdp = pin->GetReal("problem","bgdp");
-    bgdvx = pin->GetOrAddReal("problem","bgdvx", 0.0);
-    bgdvy = pin->GetOrAddReal("problem","bgdvy", 0.0);
-    bgdvz = pin->GetOrAddReal("problem","bgdvz", 0.0);
-    addvx = pin->GetOrAddReal("problem","addvx", 0.0);
-    addvy = pin->GetOrAddReal("problem","addvy", 0.0);
-    addvz = pin->GetOrAddReal("problem","addvz", 0.0);
     rotangle = pin->GetOrAddReal("problem","rotangle", 0.);
   if (SELF_GRAVITY_ENABLED) {
     Real four_pi_G = pin->GetReal("problem","four_pi_G");
@@ -62,8 +56,6 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 }
 
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
-    
-    Real gamma = pin->GetReal("hydro","gamma");
     // Determine locations of initial values
     std::string input_filename = pin->GetString("problem", "input_filename");
     std::string b_input_filename = pin->GetString("problem", "B_input_filename");
@@ -253,28 +245,28 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         std::cout << "reading MF "<< dataset_b1.c_str()<<  " \n";
         count_MF_file[2] = coord_blockcells[2];
         count_MF_file[3] = coord_blockcells[1];
-        count_MF_file[4] = coord_blockcells[0];
+        count_MF_file[4] = coord_blockcells[0]+1;
         count_MF_mem[2] = coord_blockcells[2];
         count_MF_mem[3] = coord_blockcells[1];
-        count_MF_mem[4] = coord_blockcells[0];
+        count_MF_mem[4] = coord_blockcells[0] + 1;
         HDF5ReadRealArray(b_input_filename.c_str(), dataset_b1.c_str(), 5, start_MF_file,
                           count_MF_file, 5, start_MF_mem, count_MF_mem, MF_old, true); // this sets the variables on the old mesh
-        start_MF_file[0] = 1;  start_MF_mem[0] =1;
+        start_MF_file[0] = 1;  start_MF_mem[0] = 1;
         std::cout << "reading MF "<< dataset_b2.c_str() << " \n";
         count_MF_file[2] = coord_blockcells[2];
-        count_MF_file[3] = coord_blockcells[1] ;
+        count_MF_file[3] = coord_blockcells[1] + 1;
         count_MF_file[4] = coord_blockcells[0];
         count_MF_mem[2] = coord_blockcells[2];
-        count_MF_mem[3] = coord_blockcells[1] ;
+        count_MF_mem[3] = coord_blockcells[1] + 1;
         count_MF_mem[4] = coord_blockcells[0];
         HDF5ReadRealArray(b_input_filename.c_str(), dataset_b2.c_str(), 5, start_MF_file,
                           count_MF_file, 5, start_MF_mem, count_MF_mem, MF_old, true); // this sets the variables on the old mesh
         start_MF_file[0] = 2; start_MF_mem[0] = 2;
         std::cout << "reading MF "<< dataset_b3.c_str()<< " \n";
-        count_MF_file[2] = coord_blockcells[2];
+        count_MF_file[2] = coord_blockcells[2]+1;
         count_MF_file[3] = coord_blockcells[1];
         count_MF_file[4] = coord_blockcells[0];
-        count_MF_mem[2] = coord_blockcells[2];
+        count_MF_mem[2] = coord_blockcells[2]+1;
         count_MF_mem[3] = coord_blockcells[1];
         count_MF_mem[4] = coord_blockcells[0];
         HDF5ReadRealArray(b_input_filename.c_str(), dataset_b3.c_str(), 5, start_MF_file,
@@ -299,9 +291,6 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         Real xold_fmin = x1f_old(kb, 0), xold_fmax = x1f_old(kb, coord_blockcells[2]);
         Real yold_fmin = x2f_old(kb, 0), yold_fmax = x2f_old(kb, coord_blockcells[1]);
         Real zold_fmin = x3f_old(kb, 0), zold_fmax = x3f_old(kb, coord_blockcells[0]);
-        Real dx_old = (xold_max-xold_min) / ((double)coord_blockcells[2]);
-        Real dy_old = (yold_max-yold_min) / ((double)coord_blockcells[1]);
-        Real dz_old = (zold_max-zold_min) / ((double)coord_blockcells[0]);
         std::cout << "block No " << kb << ":\n x = " << xold_min << ".." << xold_max << "\n";
         std::cout << "y = " << yold_min << ".." << yold_max << "\n" ;
         std::cout << "z = "  << zold_min << ".." << zold_max << "\n";
@@ -317,9 +306,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
                     Real x = pcoord->x1v(i), y = pcoord->x2v(j), z = pcoord->x3v(k);
                     Real dx = pcoord->dx1v(i), dy = pcoord->dx2v(j), dz = pcoord->dx3v(k);
                     Real x1 = x * std::cos(rotangle) + y * std::sin(rotangle), y1 = y * std::cos(rotangle) - x * std::sin(rotangle);
-                    int kold = (int)std::round((z-zold_min)/dz_old) ; // /(zold_max-zold_min) * (double)(coord_blockcells[0]));
-                    int jold = (int)std::round((y1-yold_min)/dy_old) ; // (yold_max-yold_min) * (double)(coord_blockcells[1]));
-                    int iold = (int)std::round((x1-xold_min)/dx_old) ; // /(xold_max-xold_min) * ((double)coord_blockcells[2]));
+                    int kold = (int)std::round((z-zold_min)/(zold_max-zold_min) * (double)(coord_blockcells[0]));
+                    int jold = (int)std::round((y1-yold_min)/(yold_max-yold_min) * (double)(coord_blockcells[1]));
+                    int iold = (int)std::round((x1-xold_min)/(xold_max-xold_min) * ((double)coord_blockcells[2]));
                     kold = std::min(std::max(kold, 0), coord_blockcells[0]-1);
                     jold = std::min(std::max(jold, 0), coord_blockcells[1]-1);
                     iold = std::min(std::max(iold, 0), coord_blockcells[2]-1);
@@ -328,17 +317,16 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
                         // std::cout << "iold = " << iold << "; jold = " << jold << "; kold = " << kold << "\n" ;
                         phydro->u(IDN, k, j, i) += u_old(IDN, kb, kold, jold, iold);
                         if (NON_BAROTROPIC_EOS) {
-                            phydro->u(IEN, k, j, i) += u_old(IEN, kb, kold, jold, iold)
-                                                    + u_old(IDN, kb, kold, jold, iold) * (SQR(addvx) + SQR(addvy)+SQR(addvz))/2.;
+                            phydro->u(IEN, k, j, i) += u_old(IEN, kb, kold, jold, iold);
                         }
-                        phydro->u(IM1, k, j, i) += u_old(IM1, kb, kold, jold, iold) + u_old(IDN, kb, kold, jold, iold) * addvx;
-                        phydro->u(IM2, k, j, i) += u_old(IM2, kb, kold, jold, iold) + u_old(IDN, kb, kold, jold, iold) * addvy;
-                        phydro->u(IM3, k, j, i) += u_old(IM3, kb, kold, jold, iold) + u_old(IDN, kb, kold, jold, iold) * addvz;
+                        phydro->u(IM1, k, j, i) += u_old(IM1, kb, kold, jold, iold);
+                        phydro->u(IM2, k, j, i) += u_old(IM2, kb, kold, jold, iold);
+                        phydro->u(IM3, k, j, i) += u_old(IM3, kb, kold, jold, iold);
                         npoints(k,j,i) ++;
                         if(MAGNETIC_FIELDS_ENABLED){
-                            pfield->b.x1f(k,j,i) += MF_old(kb, 0, kold, jold, iold);
-                            pfield->b.x2f(k,j,i) += MF_old(kb, 1, kold, jold, iold);
-                            pfield->b.x3f(k,j,i) += MF_old(kb, 2, kold, jold, iold);
+                            pfield->b.x1f(k,j,i) += u_old(5, kb, kold, jold, iold);
+                            pfield->b.x2f(k,j,i) += u_old(6, kb, kold, jold, iold);
+                            pfield->b.x3f(k,j,i) += u_old(7, kb, kold, jold, iold);
                         }
                     }
                 }
@@ -369,11 +357,11 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
                     }
                 else{
                     phydro->u(IDN, k, j, i) = bgdrho;
-                    phydro->u(IM1, k, j, i) = bgdrho * bgdvx;
-                    phydro->u(IM2, k, j, i) = bgdrho * bgdvy;
-                    phydro->u(IM3, k, j, i) = bgdrho * bgdvz;
+                    phydro->u(IM1, k, j, i) = 0.;
+                    phydro->u(IM2, k, j, i) = 0.;
+                    phydro->u(IM3, k, j, i) = 0.;
                     if (NON_BAROTROPIC_EOS) {
-                        phydro->u(IEN, k, j, i) = bgdp / (gamma-1.) + bgdrho * (SQR(bgdvx)+SQR(bgdvy)+SQR(bgdvz))/2.;
+                        phydro->u(IEN, k, j, i) = bgdp ;
                     }
                 }
             }
@@ -381,8 +369,59 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     }
     
     std::cout << "max N = " << maxnpoints << "\n";
-/*
-    // Make no-op collective reads if using MPI and ranks have unequal numbers of blocks
+    getchar();
+    /*
+  // Set field array selections
+  int start_field_file[4];
+  start_field_file[0] = gid;
+  start_field_file[1] = 0;
+  start_field_file[2] = 0;
+  start_field_file[3] = 0;
+  int count_field_file[4];
+  count_field_file[0] = 1;
+  int start_field_mem[3];
+  start_field_mem[0] = ks;
+  start_field_mem[1] = js;
+  start_field_mem[2] = is;
+  int count_field_mem[3];
+
+  // Set magnetic field values from file
+  if (MAGNETIC_FIELDS_ENABLED) {
+    // Set B1
+    count_field_file[1] = block_size.nx3;
+    count_field_file[2] = block_size.nx2;
+    count_field_file[3] = block_size.nx1 + 1;
+    count_field_mem[0] = block_size.nx3;
+    count_field_mem[1] = block_size.nx2;
+    count_field_mem[2] = block_size.nx1 + 1;
+    HDF5ReadRealArray(input_filename.c_str(), dataset_b1.c_str(), 4, start_field_file,
+                      count_field_file, 3, start_field_mem,
+                      count_field_mem, pfield->b.x1f, true);
+
+    // Set B2
+    count_field_file[1] = block_size.nx3;
+    count_field_file[2] = block_size.nx2 + 1;
+    count_field_file[3] = block_size.nx1;
+    count_field_mem[0] = block_size.nx3;
+    count_field_mem[1] = block_size.nx2 + 1;
+    count_field_mem[2] = block_size.nx1;
+    HDF5ReadRealArray(input_filename.c_str(), dataset_b2.c_str(), 4, start_field_file,
+                      count_field_file, 3, start_field_mem,
+                      count_field_mem, pfield->b.x2f, true);
+
+    // Set B3
+    count_field_file[1] = block_size.nx3 + 1;
+    count_field_file[2] = block_size.nx2;
+    count_field_file[3] = block_size.nx1;
+    count_field_mem[0] = block_size.nx3 + 1;
+    count_field_mem[1] = block_size.nx2;
+    count_field_mem[2] = block_size.nx1;
+    HDF5ReadRealArray(input_filename.c_str(), dataset_b3.c_str(), 4, start_field_file,
+                      count_field_file, 3, start_field_mem,
+                      count_field_mem, pfield->b.x3f, true);
+  }
+*/
+  // Make no-op collective reads if using MPI and ranks have unequal numbers of blocks
 #ifdef MPI_PARALLEL
   {
     int num_blocks_this_rank = pmy_mesh->nblist[Globals::my_rank];
@@ -438,6 +477,5 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     }
   }
 #endif
- */
   return;
 }

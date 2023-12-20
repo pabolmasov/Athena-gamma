@@ -1,7 +1,7 @@
 <comment>
 problem   = spherical blast wave
 reference = Gardiner. T.A. & Stone, J.M., JCP, 205, 509 (2005) (for MHD version of test)
-configure = --prob=blast
+configure = --prob=blast -hdf5 -h5double --hdf5_path /opt/homebrew
 
 <job>
 problem_id = Blast      # problem ID: basename of output filenames
@@ -11,7 +11,7 @@ file_type  = hst        # History data dump
 dt         = 0.01       # time increment between outputs
 
 <output2>
-file_type  = vtk        # Binary data dump
+file_type  = hdf5        # Binary data dump
 variable   = prim       # variables to be output
 dt         = 0.01       # time increment between outputs
 

@@ -102,13 +102,13 @@ void HDF5ReadRealArray(const char *filename, const char *dataset_name, int rank_
   // Check that user is not trying to exceed limits of HDF5 array or AthenaArray
   // dimensionality
   if (rank_file > MAX_RANK_FILE) {
-    std::stringstream msg;
+    std::stringstream msg; // number of dimensions of the dataset ??
     msg << "### FATAL ERROR\nAttempting to read HDF5 array of ndim= " << rank_file
         << "\nExceeding MAX_RANK_FILE=" << MAX_RANK_FILE << std::endl;
     ATHENA_ERROR(msg);
   }
   if (rank_mem > MAX_RANK_MEM) {
-    std::stringstream msg;
+    std::stringstream msg; // number of dimensions of the dataset ??
     msg << "### FATAL ERROR\nAttempting to read HDF5 array of ndim= " << rank_mem
         << "\nExceeding MAX_RANK_MEM=" << MAX_RANK_MEM << std::endl;
     ATHENA_ERROR(msg);

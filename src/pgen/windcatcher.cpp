@@ -23,7 +23,7 @@ using std::ifstream;
 #include <limits>
 
 // #include <fftw3.h>
-#include <gsl/gsl_sf.h> // GNU scientific library
+// #include <gsl/gsl_sf.h> // GNU scientific library
 // Athena++ headers
 #include "../athena.hpp"
 #include "../athena_arrays.hpp"
