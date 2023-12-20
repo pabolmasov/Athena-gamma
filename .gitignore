@@ -5,8 +5,8 @@ src/defs.hpp
 # Object and binary directories
 obj/
 bin/
+# models and test results:
 models/
-
 
 # Compiled object files
 *.slo
