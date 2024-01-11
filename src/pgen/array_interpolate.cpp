@@ -16,6 +16,9 @@
 // Athena++ headers
 #include "../athena.hpp"              // Real
 #include "../athena_arrays.hpp"       // AthenaArray
+#ifdef FFT
+#include "../fft/athena_fft.hpp"     // Fourier transforms
+#endif
 #include "../field/field.hpp"         // Field
 #include "../globals.hpp"             // Globals
 #include "../hydro/hydro.hpp"         // Hydro
@@ -38,12 +41,26 @@
 //!   - MeshBlock/nx3
 //!   - MeshBlock/nx2
 //!   - MeshBlock/nx1
+//!
+#ifdef FFT
+fftw_plan fplan_forward;
+fftw_plan fplan_backward;
+fftw_complex *Fphi;
+#endif
+
 
 namespace{
     Real bgdrho = 1e-8, bgdp = 1e-8, bgdvx, bgdvy, bgdvz, rotangle = 0., addvx, addvy, addvz;
+    Real int_linear(AthenaArray<Real>& u, int index, Real kest, Real jest, Real iest);
+    Real int_linear(AthenaArray<Real>& u, int index1, int index2, Real kest, Real jest, Real iest); // one index more
+
+    Real x1min;
 }
 
 void Mesh::InitUserMeshData(ParameterInput *pin) {
+    // x1min = pin->GetReal("mesh","x1min");
+    std::cerr << "xmin = " << x1min << "\n";
+    // getchar();
     bgdrho = pin->GetReal("problem","bgdrho");
     bgdp = pin->GetReal("problem","bgdp");
     bgdvx = pin->GetOrAddReal("problem","bgdvx", 0.0);
@@ -63,7 +80,10 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     
+    Real omega_Jacobi = pin->GetOrAddReal("problem","omega_Jacobi", 1.);
+    Real div_tol = pin->GetOrAddReal("problem","div_tol", 1.e-3);
     Real gamma = pin->GetReal("hydro","gamma");
+    Real dfloor = pin->GetReal("hydro","dfloor");
     // Determine locations of initial values
     std::string input_filename = pin->GetString("problem", "input_filename");
     std::string b_input_filename = pin->GetString("problem", "B_input_filename");
@@ -116,7 +136,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     std::cout << "to " <<  block_size.nx1 << " from " << coord_blockcells[2] << "\n";
     std::cout << "to " << block_size.nx2 << " from " << coord_blockcells[1] << "\n";
     std::cout << "to " << block_size.nx3 << " from " << coord_blockcells[0] << "\n";
-    getchar();
+    // getchar();
     
     int start_cons_mem[5];
     // [0] is the id
@@ -132,6 +152,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     count_cons_mem[2] = coord_blockcells[2]; // block_size.nx3;
     count_cons_mem[3] = coord_blockcells[1]; // block_size.nx2;
     count_cons_mem[4] = coord_blockcells[0]; // block_size.nx1;
+    
+    std::cout << "core " << gid << "\n";
     
     std::cout << "coord_ncells = " << coord_blockcells[0] << ".." << coord_blockcells[1] << ".." << coord_blockcells[2] << "\n";
     
@@ -215,16 +237,22 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
                               count_cons_file, 5, start_cons_mem, count_cons_mem, u_old, true); // this sets the variables on the old mesh
          }
     
-    getchar();
+    //getchar();
     
     AthenaArray<Real> MF_old; // 1, MF_old2, MF_old3; // magnetic fields (face-centered)
     int start_MF_file[5];
     int count_MF_file[5];
     int start_MF_mem[5];
     int count_MF_mem[5];
-     
+
+// MF divergence control:
+    // AthenaArray<Real> divB; // 1, MF_old2, MF_old3; // magnetic fields (face-centered)
+    // Real divB[block_size.nx1][block_size.nx2][block_size.nx3];
+    // phi = divB; // pointing to divB
+    
     if(MAGNETIC_FIELDS_ENABLED){
         MF_old.NewAthenaArray(3, numblocks, coord_blockcells[2]+2*NGHOST+1, coord_blockcells[1]+2*NGHOST+1, coord_blockcells[0]+2*NGHOST+1);
+        // divB.NewAthenaArray(block_size.nx1, block_size.nx2, block_size.nx3);
         // MF_old2.NewAthenaArray(3, numblocks, coord_blockcells[2]+2*NGHOST, coord_blockcells[1]+2*NGHOST+1, coord_blockcells[0]+2*NGHOST);
         // MF_old3.NewAthenaArray(3, numblocks, coord_blockcells[2]+2*NGHOST, coord_blockcells[1]+2*NGHOST, coord_blockcells[0]+2*NGHOST+1);
 
@@ -279,7 +307,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         count_MF_mem[4] = coord_blockcells[0];
         HDF5ReadRealArray(b_input_filename.c_str(), dataset_b3.c_str(), 5, start_MF_file,
                           count_MF_file, 5, start_MF_mem, count_MF_mem, MF_old, true); // this sets the variables on the old mesh
-        getchar();
+        //getchar();
     }
     //  getchar();
 
@@ -317,41 +345,57 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
                     Real x = pcoord->x1v(i), y = pcoord->x2v(j), z = pcoord->x3v(k);
                     Real dx = pcoord->dx1v(i), dy = pcoord->dx2v(j), dz = pcoord->dx3v(k);
                     Real x1 = x * std::cos(rotangle) + y * std::sin(rotangle), y1 = y * std::cos(rotangle) - x * std::sin(rotangle);
-                    int kold = (int)std::round((z-zold_min)/dz_old) ; // /(zold_max-zold_min) * (double)(coord_blockcells[0]));
-                    int jold = (int)std::round((y1-yold_min)/dy_old) ; // (yold_max-yold_min) * (double)(coord_blockcells[1]));
-                    int iold = (int)std::round((x1-xold_min)/dx_old) ; // /(xold_max-xold_min) * ((double)coord_blockcells[2]));
-                    kold = std::min(std::max(kold, 0), coord_blockcells[0]-1);
-                    jold = std::min(std::max(jold, 0), coord_blockcells[1]-1);
-                    iold = std::min(std::max(iold, 0), coord_blockcells[2]-1);
+                    
+                    Real kold = (z-zold_min)/dz_old, jold = (y1-yold_min)/dy_old, iold = (x1-xold_min)/dx_old;
+                    
+                    // int kold = (int)std::round((z-zold_min)/dz_old) ; // /(zold_max-zold_min) * (double)(coord_blockcells[0]));
+                    // int jold = (int)std::round((y1-yold_min)/dy_old) ; // (yold_max-yold_min) * (double)(coord_blockcells[1]));
+                    // int iold = (int)std::round((x1-xold_min)/dx_old) ; // /(xold_max-xold_min) * ((double)coord_blockcells[2]));
+                    kold = std::min(std::max(kold, 0.), (double)coord_blockcells[0]-1);
+                    jold = std::min(std::max(jold, 0.), (double)coord_blockcells[1]-1);
+                    iold = std::min(std::max(iold, 0.), (double)coord_blockcells[2]-1);
                     // if ((kold >= 0) && (kold < coord_blockcells[0]) && (jold >= 0) && (jold < coord_blockcells[1]) && (iold >= 0) && (iold < coord_blockcells[2]))
-                    if((x1>(xold_fmin-dx)) && (x1 < (xold_fmax+dx)) && (y1>(yold_fmin-dy)) && (y1 < (yold_fmax+dy)) &&(z>(zold_fmin-dz)) && (z < (zold_fmax+dz)) && (u_old(IDN, kb, kold, jold, iold) > 0.)){
-                        // std::cout << "iold = " << iold << "; jold = " << jold << "; kold = " << kold << "\n" ;
-                        phydro->u(IDN, k, j, i) += u_old(IDN, kb, kold, jold, iold);
+                    Real dd = int_linear(u_old, IDN, kb, kold, jold, iold);
+                   //if((x1>(xold_fmin-dx)) && (x1 < (xold_fmax+dx)) && (y1>(yold_fmin-dy)) && (y1 < (yold_fmax+dy)) &&(z>(zold_fmin-dz)) && (z < (zold_fmax+dz))){
+                    if(dd>dfloor){
+                    // std::cout << "iold = " << iold << "; jold = " << jold << "; kold = " << kold << "\n" ;
+                        
+                        phydro->u(IDN, k, j, i) += dd;
+                        // u_old(IDN, kb, kold, jold, iold);
                         if (NON_BAROTROPIC_EOS) {
-                            phydro->u(IEN, k, j, i) += u_old(IEN, kb, kold, jold, iold)
-                                                    + u_old(IDN, kb, kold, jold, iold) * (SQR(addvx) + SQR(addvy)+SQR(addvz))/2.;
+                            phydro->u(IEN, k, j, i) += int_linear(u_old, IEN, kb, kold, jold, iold) + dd * (SQR(addvx) + SQR(addvy)+SQR(addvz))/2.;
+                            // u_old(IEN, kb, kold, jold, iold)
+                                                   // + u_old(IDN, kb, kold, jold, iold) * (SQR(addvx) + SQR(addvy)+SQR(addvz))/2.;
                         }
-                        phydro->u(IM1, k, j, i) += u_old(IM1, kb, kold, jold, iold) + u_old(IDN, kb, kold, jold, iold) * addvx;
-                        phydro->u(IM2, k, j, i) += u_old(IM2, kb, kold, jold, iold) + u_old(IDN, kb, kold, jold, iold) * addvy;
-                        phydro->u(IM3, k, j, i) += u_old(IM3, kb, kold, jold, iold) + u_old(IDN, kb, kold, jold, iold) * addvz;
+                        phydro->u(IM1, k, j, i) += int_linear(u_old, IM1, kb, kold, jold, iold) + dd * addvx;
+                        // u_old(IM1, kb, kold, jold, iold) + u_old(IDN, kb, kold, jold, iold) * addvx;
+                        phydro->u(IM2, k, j, i) += int_linear(u_old, IM2, kb, kold, jold, iold) + dd * addvy;
+                        // u_old(IM2, kb, kold, jold, iold) + u_old(IDN, kb, kold, jold, iold) * addvy;
+                        phydro->u(IM3, k, j, i) += int_linear(u_old, IM3, kb, kold, jold, iold) + dd * addvz;
+                        // u_old(IM3, kb, kold, jold, iold) + u_old(IDN, kb, kold, jold, iold) * addvz;
                         npoints(k,j,i) ++;
                         if(MAGNETIC_FIELDS_ENABLED){
-                            pfield->b.x1f(k,j,i) += MF_old(kb, 0, kold, jold, iold);
-                            pfield->b.x2f(k,j,i) += MF_old(kb, 1, kold, jold, iold);
-                            pfield->b.x3f(k,j,i) += MF_old(kb, 2, kold, jold, iold);
+                            pfield->b.x1f(k,j,i) += int_linear(MF_old, kb, 0, kold, jold, iold);
+                            // MF_old(kb, 0, kold, jold, iold);
+                            pfield->b.x2f(k,j,i) += int_linear(MF_old, kb, 1, kold, jold, iold);
+                            // MF_old(kb, 1, kold, jold, iold);
+                            pfield->b.x3f(k,j,i) += int_linear(MF_old, kb, 2, kold, jold, iold);
+                            // MF_old(kb, 2, kold, jold, iold);
                         }
                     }
                 }
             }
+            // std::cout << "k = " << k << "\n";
+            // getchar();
         }
     }
-    
+    // std::cout << "interpolated \n";
     int maxnpoints = 0;
 
     // normalize by the number of points:
-    for (int k = ks; k <= ke; k++) {
-        for (int j = js; j <= je; j++) {
-            for (int i = is; i <= ie; i++) {
+    for (int k = ks-NGHOST; k <= ke+NGHOST; k++) {
+        for (int j = js-NGHOST; j <= je+NGHOST; j++) {
+            for (int i = is-NGHOST; i <= ie+NGHOST; i++) {
                 if (npoints(k,j,i) > 0){
                     maxnpoints = std::max(npoints(k,j,i), maxnpoints);
                     phydro->u(IDN, k, j, i) /= (double)npoints(k,j,i) ;
@@ -380,7 +424,131 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         }
     }
     
+    // std::cout << "normalized \n";
+    // pfield->CalculateCellCenteredField(pfield->b, pfield->bcc, pcoord, is-NGHOST, ie+NGHOST, js-NGHOST, je+NGHOST, ks-NGHOST, ke+NGHOST);
+
+    // calculate divB (rectangular grid!)
+    // double *in1 = (double *)fftw_malloc(sizeof(double) * N*N);
+    AthenaArray<Real> divB;  // , phi, phi1;
+    divB.NewAthenaArray(block_size.nx3+2*NGHOST, block_size.nx2+2*NGHOST, block_size.nx1+2*NGHOST);
+    // phi.NewAthenaArray(block_size.nx1, block_size.nx2, block_size.nx3);
+    // phi1.NewAthenaArray(block_size.nx1, block_size.nx2, block_size.nx3);
+    // double *divB = (double *)fftw_malloc(sizeof(double) * block_size.nx1 * block_size.nx2 * block_size.nx3);
+    Real dx = pcoord->dx1v(0), dy = pcoord->dx2v(0), dz = pcoord->dx3v(0);
+
+    if(MAGNETIC_FIELDS_ENABLED){
+        int divborder = NGHOST;
+        for (int k = ks-divborder; k < ke+divborder; k++) {
+            for (int j = js-divborder; j <= je+divborder; j++) {
+                for (int i = is-divborder; i < ie+divborder; i++) {
+                    // Real dx = pcoord->dx1v(i), dy = pcoord->dx2v(j), dz = pcoord->dx3v(k);
+                    divB(k,j,i) = (pfield->b.x1f(k,j,i+1)-pfield->b.x1f(k,j,i))/dx
+                    + (pfield->b.x2f(k,j+1,i)-pfield->b.x2f(k,j,i))/dy
+                    + (pfield->b.x3f(k+1,j,i)-pfield->b.x3f(k,j,i))/dz;
+                    // phi(k,j,i) = divB(k,j,i) * 1.0;
+                }
+            }
+        }
+        
+        std::cout << "divergence cleaning\n";
+        // now solving an iterative scheme for diffusing out the gradient part of B
+        int ctr=0; // number of relaxation iterations
+        Real tol = div_tol, omega = omega_Jacobi * std::min(SQR(dx),std::min(SQR(dy), SQR(dz)));
+        
+        std::cout << "omega for iterations = " << omega << "\n";
+        
+        Real Berror=1., Bmax=1.;
+
+        //for (int q = 0; q < niter; q++){ // iterations
+        while(Berror > (tol*Bmax)){
+            Berror=0.; Bmax = 0.;
+            // writing phi1
+            for (int k = ks-divborder+1; k <= ke+divborder; k++) {
+                for (int j = js-divborder+1; j <= je+divborder; j++) {
+                    for (int i = is-divborder+1; i <= ie+divborder; i++) {
+                        if((k<ke)&&(j<je))pfield->b.x1f(k,j,i) += (divB(k,j,i)-divB(k,j,i-1))/dx * omega;
+                        if((k<ke)&&(i<ie))pfield->b.x2f(k,j,i) += (divB(k,j,i)-divB(k,j-1,i))/dy * omega;
+                        if((i<ie)&&(j<je))pfield->b.x3f(k,j,i) += (divB(k,j,i)-divB(k-1,j,i))/dz * omega;
+                        
+                        if ((k > ks) && (k < ke) && (j > js) && (j < je) && (i > is) && (i < ie)){
+                            Bmax = std::max(Bmax,std::abs(pfield->b.x2f(k,j,i)));
+                            Berror = std::max(Berror,std::abs(divB(k,j,i)));
+                        }
+                   }
+                }
+            }
+#ifdef MPI_PARALLEL
+            MPI_Allreduce(MPI_IN_PLACE, &Bmax, 1, MPI_ATHENA_REAL, MPI_MAX, MPI_COMM_WORLD);
+            MPI_Allreduce(MPI_IN_PLACE, &Berr, 1, MPI_ATHENA_REAL, MPI_MAX, MPI_COMM_WORLD);
+#endif
+            pfield->fbvar.SetBoundaries();
+            // rewriting divB
+            for (int k = ks-divborder; k < ke+divborder; k++) {
+                for (int j = js-divborder; j <= je+divborder; j++) {
+                    for (int i = is-divborder; i < ie+divborder; i++) {
+                        // Real dx = pcoord->dx1v(i), dy = pcoord->dx2v(j), dz = pcoord->dx3v(k);
+                        divB(k,j,i) = (pfield->b.x1f(k,j,i+1)-pfield->b.x1f(k,j,i))/dx
+                        + (pfield->b.x2f(k,j+1,i)-pfield->b.x2f(k,j,i))/dy
+                        + (pfield->b.x3f(k+1,j,i)-pfield->b.x3f(k,j,i))/dz;
+                    }
+                }
+            }
+            if (ctr%100==0)
+                std::cout << "div B error / B max = " << Berror << "/ " << Bmax << " = " << Berror/Bmax <<   "\n";
+            ctr ++;
+            //getchar();
+        }
+    }
+/*
+#ifdef FFT
+        // FFT divergence cleaning
+        Fphi = new fftw_complex[block_size.nx1,block_size.nx2, block_size.nx3/2+1];
+        //fplan =  fftw_plan_dft_1d(, fft_data, fft_data, FFTW_FORWARD, FFTW_ESTIMATE);
+        fftw_plan fplan_forward = fftw_plan_dft_r2c_3d(block_size.nx1,block_size.nx2, block_size.nx3,
+                                       divB, Fphi,FFTW_FORWARD);
+        fftw_plan fplan_backward = fftw_plan_dft_c2r_3d(block_size.nx1,block_size.nx2, block_size.nx3,
+                                       Fphi, divB,FFTW_BACKWARD);
+
+        fftw_execute(fplan_forward); // converting divB to Fourier space
+        
+        Real xrange = pcoord->dx1v(0) * (double)block_size.nx3, yrange = pcoord->dx1v(1) * (double)block_size.nx2, zrange = pcoord->dx1v(2) * (double)block_size.nx1;
+        
+        int kmid = ceil (block_size.nx1/2);
+        int jmid = ceil (block_size.nx2/2);
+        int imid = ceil (block_size.nx3/2);
+        
+        for (int k = ks; k <= ke; k++) {
+            for (int j = js; j <= je; j++) {
+                for (int i = is; i <= ie; i++) {
+                    int bindex = k + block_size.nx1 * (j +  block_size.nx2 * i);
+                    Real ksq = ((double)SQR(k-kmid)/SQR(zrange)+SQR(j-jmid)/SQR(yrange)+SQR(i-imid)/SQR(xrange));
+                    Fphi[bindex][0] /= (double)ksq * (double)(block_size.nx3 * block_size.nx2 * block_size.nx1); // now it should become phi
+                }
+            }
+        }
+        fftw_execute(fplan_backward); // converting divB to Fourier space
+
+        for (int k = ks; k <= ke+1; k++) {
+            for (int j = js; j <= je+1; j++) {
+                for (int i = is; i <= ie+1; i++) {
+                    int bindex = k + block_size.nx1 * (j +  block_size.nx2 * i),
+                        bindex_i0 = k + block_size.nx1 * (j +  block_size.nx2 * (i-1)),
+                        bindex_j0 = k + block_size.nx1 * (j-1 +  block_size.nx2 * i),
+                        bindex_k0 = k-1 + block_size.nx1 * (j +  block_size.nx2 * i);
+                    Real dx = pcoord->dx1v(i), dy = pcoord->dx2v(j), dz = pcoord->dx3v(k);
+                    pfield->b.x1f(k,j,i) -= (divB[bindex]-divB[bindex_i0]) / dx ;
+                    pfield->b.x2f(k,j,i) -= (divB[bindex]-divB[bindex_j0]) / dy ;
+                    pfield->b.x3f(k,j,i) -= (divB[bindex]-divB[bindex_k0]) / dz ;
+                }
+            }
+        }
+        fftw_destroy_plan(fplan_forward);
+        fftw_destroy_plan(fplan_backward);
+#endif
+    }
+*/
     std::cout << "max N = " << maxnpoints << "\n";
+    // getchar();
 /*
     // Make no-op collective reads if using MPI and ranks have unequal numbers of blocks
 #ifdef MPI_PARALLEL
@@ -440,4 +608,45 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 #endif
  */
   return;
+}
+
+namespace{
+
+Real int_linear(AthenaArray<Real> &u, int index, Real kest, Real jest, Real iest){
+    // version for one foreindex
+    int k0 = (int)floor(kest), j0 = (int)floor(jest), i0 = (int)floor(iest);
+    int k1 = k0+1, j1 = j0+1, i1 = i0+1;
+    
+    Real cz = std::fmod(kest,k0), cy = std::fmod(jest,j0), cx = std::fmod(iest,i0);
+    
+    Real unew0 = u(index, k0,j0,i0) + cy * (u(index, k0,j1,i0) - u(index, k0,j0,i0)) +  cx * (u(index, k0,j0,i1) - u(index, k0,j0,i0))
+    + cy * cx * (u(index, k0,j1,i1) - u(index, k0,j0,i1) - u(index, k0,j1,i0) + u(index, k0,j0,i0)); // 2D interpolation at z = 0
+    Real unew1 = u(index, k1,j0,i0) + cy * (u(index, k1,j1,i0) - u(index, k1,j0,i0)) +  cx * (u(index, k1,j0,i1) - u(index, k1,j0,i0))
+    + cy * cx * (u(index, k1,j1,i1) - u(index, k1,j0,i1) - u(index, k1,j1,i0) + u(index, k1,j0,i0)); // 2D interpolation at z = 0
+    
+    return unew0 + cz * (unew1 - unew0);
+}
+
+Real int_linear(AthenaArray<Real> &u, int index1, int index2, Real kest, Real jest, Real iest){
+    // version for two foreindices
+    int k0 = (int)floor(kest), j0 = (int)floor(jest), i0 = (int)floor(iest);
+    int k1 = k0+1, j1 = j0+1, i1 = i0+1;
+    Real cz = std::fmod(kest,k0), cy = std::fmod(jest,j0), cx = std::fmod(iest,i0);
+
+    if (kest >= 130.){
+        std::cout << "raw frac: " << kest << ", " << jest << ", " << iest << "\n";
+        std::cout << "int: " << k0 << ", " << j0 << ", " << i0 << "\n";
+        std::cout << "fracs: " << cz << ", " << cy << ", " << cx << "\n";
+    }
+
+    Real& u00 = u(index1, index2, k0,j0,i0);
+    
+    Real unew0 = u00 + cy * (u(index1, index2,  k0,j1,i0) - u00) +  cx * (u(index1, index2, k0,j0,i1) - u00)
+    + cy * cx * (u(index1, index2, k0,j1,i1) - u(index1, index2, k0,j0,i1) - u(index1, index2, k0,j1,i0) + u00); // 2D interpolation at z = 0
+    u00 = u(index1, index2, k1,j0,i0);
+    Real unew1 = u00 + cy * (u(index1, index2, k1,j1,i0) - u00) +  cx * (u(index1, index2, k1,j0,i1) - u00)
+    + cy * cx * (u(index1, index2, k1,j1,i1) - u(index1, index2, k1,j0,i1) - u(index1, index2, k1,j1,i0) + u00); // 2D interpolation at z = 0
+    
+    return unew0 + cz * (unew1 - unew0);
+}
 }
