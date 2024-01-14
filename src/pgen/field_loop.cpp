@@ -73,8 +73,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     // the origin of the initial loop
     x0 = pin->GetOrAddReal("problem","x0",0.0);
     y00 = pin->GetOrAddReal("problem","y0",0.0);
-   // threshold = pin->GetOrAddReal("threshold","threshold",0.0);
-
+     // threshold = pin->GetOrAddReal("threshold","threshold",0.0);
+    
     if (adaptive) {
       EnrollUserRefinementCondition(RefinementCondition);
       threshold = pin->GetReal("problem", "thr");
@@ -300,38 +300,18 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
 int RefinementCondition(MeshBlock *pmb) {
     // from "slotted_cylinder"
-  int f2 = pmb->pmy_mesh->f2, f3 = pmb->pmy_mesh->f3;
-  AthenaArray<Real> &r = pmb->pscalars->r;
-  Real maxeps = 0.0;
-  if (f3) {
-    for (int n=0; n<NSCALARS; ++n) {
+    Real maxeps = 0.;
       for (int k=pmb->ks-1; k<=pmb->ke+1; k++) {
         for (int j=pmb->js-1; j<=pmb->je+1; j++) {
           for (int i=pmb->is-1; i<=pmb->ie+1; i++) {
-            Real eps = std::sqrt(SQR(0.5*(r(n,k,j,i+1) - r(n,k,j,i-1)))
-                                 + SQR(0.5*(r(n,k,j+1,i) - r(n,k,j-1,i)))
-                                 + SQR(0.5*(r(n,k+1,j,i) - r(n,k-1,j,i))));
+            Real eps = std::sqrt(SQR(pmb->pfield->bcc(IB1, k,j,i+1) - pmb->pfield->bcc(IB1, k,j,i-1))
+                                 + SQR(pmb->pfield->bcc(IB2, k,j+1,i) - pmb->pfield->bcc(IB2, k,j-1,i)));
             // /r(n,k,j,i); Do not normalize by scalar, since (unlike IDN and IPR) there
             // are are no physical floors / r=0 might be allowed. Compare w/ blast.cpp.
             maxeps = std::max(maxeps, eps);
           }
         }
       }
-    }
-  } else if (f2) {
-    int k = pmb->ks;
-    for (int n=0; n<NSCALARS; ++n) {
-      for (int j=pmb->js-1; j<=pmb->je+1; j++) {
-        for (int i=pmb->is-1; i<=pmb->ie+1; i++) {
-          Real eps = std::sqrt(SQR(0.5*(r(n,k,j,i+1) - r(n,k,j,i-1)))
-                               + SQR(0.5*(r(n,k,j+1,i) - r(n,k,j-1,i)))); // /r(n,k,j,i);
-          maxeps = std::max(maxeps, eps);
-        }
-      }
-    }
-  } else {
-    return 0;
-  }
 
   if (maxeps > threshold) return 1;
   if (maxeps < 0.25*threshold) return -1;

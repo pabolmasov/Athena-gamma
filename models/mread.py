@@ -323,7 +323,7 @@ def hdfplot(nfile, ifv = False, ifm = False, qname = 'rho', dir = 'windy', iflog
         xlim(x.min(), x.max())
         ylim(y.min(), y.max())
         title(r't = '+str(round(data['Time'])))
-        fig.set_size_inches(6.,12.)
+        fig.set_size_inches(12.,12.)
         savefig('XY'+'{:05d}'.format(nfile)+'.png')
         if ifm:
             r1 = 2. ; r2 = 3.
@@ -375,7 +375,7 @@ def nplot(n1, n2):
     for k in arange(n2-n1)+n1:
         print("n = ", k)
         # tk, mk = hdfplot(k, ifm=True)
-        hdfplot(k, ifv=False, iflog=False, dir='fromm_loop', prefix='from_array.prim', qname='Bcc2')
+        hdfplot(k, ifv=False, iflog=False, dir='fromm_Aloop', prefix='from_array.prim', qname='Bcc2')
         # tl.append(tk)  ; ml.append(mk)
         # fmcurve.write(str(tk)+' '+str(mk)+'\n')
         

@@ -48,6 +48,8 @@ fftw_plan fplan_backward;
 fftw_complex *Fphi;
 #endif
 
+int RefinementCondition(MeshBlock *pmb);
+
 
 namespace{
     Real bgdrho = 1e-8, bgdp = 1e-8, bgdvx, bgdvy, bgdvz, rotangle = 0., addvx, addvy, addvz;
@@ -55,6 +57,7 @@ namespace{
     Real int_linear(AthenaArray<Real>& u, int index1, int index2, Real kest, Real jest, Real iest); // one index more
 
     Real x1min;
+    Real threshold;
 }
 
 void Mesh::InitUserMeshData(ParameterInput *pin) {
@@ -76,6 +79,11 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     SetFourPiG(four_pi_G);
     SetGravityThreshold(eps);
   }
+    if (adaptive) {
+      EnrollUserRefinementCondition(RefinementCondition);
+      threshold = pin->GetReal("problem", "thr");
+    }
+
 }
 
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
@@ -375,11 +383,11 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
                         // u_old(IM3, kb, kold, jold, iold) + u_old(IDN, kb, kold, jold, iold) * addvz;
                         npoints(k,j,i) ++;
                         if(MAGNETIC_FIELDS_ENABLED){
-                            pfield->b.x1f(k,j,i) += int_linear(MF_old, kb, 0, kold, jold, iold);
+                            pfield->b.x1f(k,j,i) += int_linear(MF_old, 0, kb, kold, jold, iold);
                             // MF_old(kb, 0, kold, jold, iold);
-                            pfield->b.x2f(k,j,i) += int_linear(MF_old, kb, 1, kold, jold, iold);
+                            pfield->b.x2f(k,j,i) += int_linear(MF_old, 1, kb, kold, jold, iold);
                             // MF_old(kb, 1, kold, jold, iold);
-                            pfield->b.x3f(k,j,i) += int_linear(MF_old, kb, 2, kold, jold, iold);
+                            pfield->b.x3f(k,j,i) += int_linear(MF_old, 2, kb, kold, jold, iold);
                             // MF_old(kb, 2, kold, jold, iold);
                         }
                     }
@@ -649,4 +657,27 @@ Real int_linear(AthenaArray<Real> &u, int index1, int index2, Real kest, Real je
     
     return unew0 + cz * (unew1 - unew0);
 }
+}
+
+int RefinementCondition(MeshBlock *pmb) {
+    // from "slotted_cylinder"
+    Real maxeps = 0.;
+    // no refinement in adsence of MF
+    if(MAGNETIC_FIELDS_ENABLED){
+        for (int k=pmb->ks-1; k<=pmb->ke+1; k++) {
+            for (int j=pmb->js-1; j<=pmb->je+1; j++) {
+                for (int i=pmb->is-1; i<=pmb->ie+1; i++) {
+                    Real eps = std::sqrt(SQR(pmb->pfield->bcc(IB1, k,j,i+1) - pmb->pfield->bcc(IB1, k,j,i-1))
+                                         + SQR(pmb->pfield->bcc(IB2, k,j+1,i) - pmb->pfield->bcc(IB2, k,j-1,i)));
+                    // /r(n,k,j,i); Do not normalize by scalar, since (unlike IDN and IPR) there
+                    // are are no physical floors / r=0 might be allowed. Compare w/ blast.cpp.
+                    maxeps = std::max(maxeps, eps);
+                }
+            }
+        }
+    }
+    // std::cout << "maxeps = " << maxeps << "\n";
+  if (maxeps > threshold) return 1;
+  if (maxeps < 0.25*threshold) return -1;
+  return 0;
 }
